@@ -335,13 +335,21 @@ class AutomationEngine {
   }
 
 
-  async processConnectedNodes(flow, currentNode, currentData, executionLog, originalInputData = {}) {
+  async processConnectedNodes(flow, currentNode, currentData, executionLog, originalInputData = {}, visited = new Set()) {
+    // Cycle protection: skip nodes we've already visited in this execution path
+    if (visited.has(currentNode.id)) {
+      console.warn(`Cycle detected at node ${currentNode.id} — stopping recursion`);
+      return;
+    }
+    const newVisited = new Set(visited);
+    newVisited.add(currentNode.id);
+
     const connectedNodes = this.getConnectedNodes(flow, currentNode.id);
 
     for (const node of connectedNodes) {
       const nodeResult = await this.executeNode(node, flow, currentData, executionLog);
 
-      // user_input node is pausing — save session state and stop recursion
+      // user_input / button / list node is pausing — save session state and stop recursion
       if (nodeResult.waitForInput) {
         await this.saveFlowSession(flow, node, { ...currentData, ...nodeResult.output }, nodeResult.variableName);
         return;
@@ -352,14 +360,31 @@ class AutomationEngine {
         return;
       }
 
-      if (nodeResult.success) {
-        const updatedData = {
-          ...currentData,
-          ...nodeResult.output,
-          userId: currentData.userId || originalInputData.userId || originalInputData.user_id
-        };
+      const updatedData = {
+        ...currentData,
+        ...nodeResult.output,
+        userId: currentData.userId || originalInputData.userId || originalInputData.user_id
+      };
 
-        await this.processConnectedNodes(flow, node, updatedData, executionLog, originalInputData);
+      if (node.type === 'condition') {
+        // Condition branching: true path uses src-true or src (button/list conditions)
+        // false path uses src-false (regular conditions only)
+        if (nodeResult.success) {
+          const trueNodes = [
+            ...this.getConnectedNodesByHandle(flow, node.id, 'src-true'),
+            ...this.getConnectedNodesByHandle(flow, node.id, 'src'),
+          ];
+          for (const trueNode of trueNodes) {
+            await this.processConnectedNodes(flow, trueNode, updatedData, executionLog, originalInputData, newVisited);
+          }
+        } else {
+          const falseNodes = this.getConnectedNodesByHandle(flow, node.id, 'src-false');
+          for (const falseNode of falseNodes) {
+            await this.processConnectedNodes(flow, falseNode, updatedData, executionLog, originalInputData, newVisited);
+          }
+        }
+      } else if (nodeResult.success) {
+        await this.processConnectedNodes(flow, node, updatedData, executionLog, originalInputData, newVisited);
       }
     }
   }
@@ -368,6 +393,15 @@ class AutomationEngine {
   getConnectedNodes(flow, nodeId) {
     const connectedIds = flow.connections
       .filter(conn => conn.source === nodeId)
+      .map(conn => conn.target);
+
+    return flow.nodes.filter(node => connectedIds.includes(node.id));
+  }
+
+
+  getConnectedNodesByHandle(flow, nodeId, sourceHandle) {
+    const connectedIds = flow.connections
+      .filter(conn => conn.source === nodeId && conn.sourceHandle === sourceHandle)
       .map(conn => conn.target);
 
     return flow.nodes.filter(node => connectedIds.includes(node.id));
@@ -461,6 +495,18 @@ class AutomationEngine {
           break;
         case 'ai_transfer':
           result = await this.executeAiTransferNode(node, inputData);
+          break;
+        case 'interactive_message':
+        case 'template_message':
+        case 'text_message':
+        case 'button_message':
+        case 'list_message':
+        case 'list-message':
+        case 'media_message':
+        case 'location':
+        case 'call_to_action':
+        case 'send-message':
+          result = await this.executeSendMessageNode(node, inputData);
           break;
         case 'custom':
           result = await this.executeCustomNode(node, inputData);
@@ -855,16 +901,27 @@ class AutomationEngine {
 
       const result = await unifiedWhatsAppService.sendMessage(userId, messageParams);
 
-      return {
-        success: true,
-        output: {
-          ...inputData,
-          message_sent: true,
-          sent_to: processedRecipient,
-          provider: result.provider,
-          message_id: result.messageId
-        }
+      const baseOutput = {
+        ...inputData,
+        message_sent: true,
+        sent_to: processedRecipient,
+        provider: result.provider,
+        message_id: result.messageId
       };
+
+      // Button and list interactive messages PAUSE the flow.
+      // The flow resumes when the user's button click / list selection arrives,
+      // and the condition nodes after this node evaluate which branch to take.
+      if (interactive_type === 'button' || interactive_type === 'list') {
+        return {
+          success: true,
+          waitForInput: true,
+          variableName: null,
+          output: baseOutput,
+        };
+      }
+
+      return { success: true, output: baseOutput };
     } catch (error) {
       return { success: false, output: inputData, error: error.message };
     }
@@ -1093,7 +1150,10 @@ class AutomationEngine {
       if (session.variable_name) {
         resumeData[session.variable_name] = userMessage;
       }
+      // Update message field so condition nodes (button/list branching) evaluate correctly.
+      // For button clicks, userMessage is the button's ID (e.g. "f12ab3___Yes").
       resumeData.userReply = userMessage;
+      resumeData.message = userMessage;
 
       // Refresh live event fields (phone number may differ between requests)
       if (eventData.whatsappPhoneNumberId) resumeData.whatsappPhoneNumberId = eventData.whatsappPhoneNumberId;
