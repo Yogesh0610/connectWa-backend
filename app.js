@@ -1,10 +1,11 @@
 import express from "express";
 import cors from "cors";
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import path from "path";
 import { handleWebhookVerification } from "./controllers/whatsapp-webhook.controller.js";
 import { handleIncomingMessage as handleIncomingMessageOriginal, handleStatusUpdate as handleStatusUpdateOriginal } from "./controllers/whatsapp-webhook.controller.js";
 import { denyMutationInDemo } from "./middlewares/demo-mode.js";
-import { rtInit } from "./node/src/middlewares/runtime-init.js";
 import session from 'express-session';
 import { fileURLToPath } from 'url';
 import ejsMate from 'ejs-mate';
@@ -12,6 +13,7 @@ import { checkPlanLimit } from "./middlewares/plan-permission.js";
 
 
 const app = express();
+app.use(helmet());
 app.set("trust proxy", true);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,10 +32,13 @@ app.use(session({
   }
 }));
 
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+  : ['http://localhost:3000', 'http://localhost:5173'];
+
 app.use(
   cors({
     origin: function (origin, callback) {
-      const allowedOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS : [];
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
@@ -63,7 +68,6 @@ const captureRawBody = (req, res, next) => {
 };
 
 app.use(captureRawBody);
-app.use(rtInit);
 
 import { handleStripeWebhook, handleRazorpayWebhook, handlePayPalWebhook } from "./controllers/webhook.controller.js";
 app.post("/api/webhook/stripe", handleStripeWebhook);
@@ -72,16 +76,13 @@ app.post("/api/webhook/paypal", handlePayPalWebhook);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { success: false, message: 'Too many requests, please try again later.' } });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 200, standardHeaders: true, legacyHeaders: false });
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use('/install', express.static(path.join(__dirname, 'public/install')));
 
 app.use('/api', denyMutationInDemo);
-
-import { initializeInstaller, createInstallationMiddleware } from './lib/install.js';
-
-await initializeInstaller(app);
-
-app.use(createInstallationMiddleware());
 
 import webhookRoutes from "./routes/webhook.routes.js";
 app.use("/api/webhook", webhookRoutes);
@@ -141,6 +142,9 @@ import languageRoutes from "./routes/language.routes.js";
 import pageRoutes from "./routes/pages.routes.js";
 import roleRoutes from "./routes/role.routes.js";
 import taxRoutes from "./routes/tax.routes.js";
+import adLeadsRoutes from "./routes/ad-leads.routes.js";
+import googleAdsRoutes from "./routes/google-ads.routes.js";
+import metaAdsRoutes from "./routes/meta-ads.routes.js";
 
 
 import { redirectShortLink } from "./controllers/short-link.controller.js";
@@ -184,7 +188,7 @@ app.get("/api/is-demo-mode", async (req, res) => {
   }
 });
 
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/faq", faqRoutes);
 app.use("/api/inquiry", inquiryRoutes);
 app.use("/api/testimonial", testimonialRoutes);
@@ -239,8 +243,9 @@ app.use("/api/languages", languageRoutes);
 app.use("/api/pages", pageRoutes);
 app.use("/api/roles", roleRoutes);
 app.use("/api/taxes", taxRoutes);
-
-
+app.use("/api/ad-leads", adLeadsRoutes);
+app.use("/api/google-ads", googleAdsRoutes);
+app.use("/api/meta-ads", metaAdsRoutes);
 
 app.get("/short_link/wp/:code", redirectShortLink);
 
@@ -253,8 +258,6 @@ app.post("/webhook/whatsapp", (req, res) => {
   const io = app.get("io");
   const change = req.body.entry?.[0]?.changes?.[0];
   const messages = change?.value?.messages;
-
-  console.log("Messages:", messages);
 
   if (value?.statuses) {
 
@@ -275,8 +278,6 @@ app.post("/webhook/whatsapp", (req, res) => {
   } else if (changes?.field === 'calls') {
     import('./services/whatsapp/call-automation.service.js').then(m => {
       const callData = value.calls?.[0];
-      console.log("callData", callData);
-
       if (callData) {
         m.default.handleCallWebhook(
           callData,
@@ -286,11 +287,18 @@ app.post("/webhook/whatsapp", (req, res) => {
     });
     return res.sendStatus(200);
   } else {
-    console.log("Unknown WhatsApp webhook type:", req.body);
     return res.sendStatus(200);
   }
 });
 
 
+
+app.use((err, req, res, next) => {
+  if (err.message?.startsWith('CORS blocked')) {
+    return res.status(403).json({ success: false, message: 'CORS policy violation' });
+  }
+  console.error('Unhandled error:', err.message);
+  res.status(500).json({ success: false, message: 'Internal server error' });
+});
 
 export default app;

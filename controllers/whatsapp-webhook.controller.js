@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { WhatsappPhoneNumber, Message, EcommerceOrder, User } from '../models/index.js';
 import {
   isWithinWorkingHours,
@@ -13,9 +14,20 @@ import { updateWhatsAppStatus } from '../utils/message-status.service.js';
 import { updateCampaignStatsFromWhatsApp } from '../utils/campaign-stats.service.js';
 import { sendPushNotification } from '../utils/one-signal.js';
 
+const verifyWhatsAppSignature = (req) => {
+  const appSecret = process.env.WHATSAPP_APP_SECRET;
+  if (!appSecret) return true; // skip if not configured (dev mode)
+
+  const signature = req.headers['x-hub-signature-256'];
+  if (!signature) return false;
+
+  const body = JSON.stringify(req.body);
+  const expectedSignature = 'sha256=' + crypto.createHmac('sha256', appSecret).update(body).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+};
+
 
 export const handleWebhookVerification = (req, res) => {
-  console.log("called");
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
@@ -32,7 +44,10 @@ export const handleWebhookVerification = (req, res) => {
 
 export const handleIncomingMessage = async (req, res, io = null) => {
   try {
-    console.log("WhatsApp webhook called");
+    if (!verifyWhatsAppSignature(req)) {
+      console.warn('WhatsApp webhook signature verification failed');
+      return res.sendStatus(403);
+    }
 
     const entry = req.body.entry?.[0];
     const changes = entry?.changes?.[0];

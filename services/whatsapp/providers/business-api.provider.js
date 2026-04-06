@@ -87,9 +87,22 @@ export default class BusinessAPIProvider extends BaseProvider {
         break;
 
       case MESSAGE_TYPES.INTERACTIVE:
-        const { interactiveType, buttonParams, listParams } = params;
+        const { interactiveType, buttonParams, listParams, ctaParams } = params;
 
-        if (interactiveType === 'button') {
+        if (interactiveType === 'cta_url' && ctaParams) {
+          payload.interactive = {
+            type: 'cta_url',
+            ...(ctaParams.header ? { header: { type: 'text', text: ctaParams.header } } : {}),
+            body: { text: ctaParams.body || messageText },
+            action: {
+              name: 'cta_url',
+              parameters: {
+                display_text: ctaParams.button?.text || 'Click Here',
+                url: ctaParams.button?.url || '',
+              },
+            },
+          };
+        } else if (interactiveType === 'button') {
           payload.interactive = {
             type: 'button',
             body: {
@@ -144,7 +157,6 @@ export default class BusinessAPIProvider extends BaseProvider {
           payload.template.components = templateComponents;
         }
 
-        console.log('Template payload being sent to WhatsApp:', JSON.stringify(payload, null, 2));
         break;
 
       case MESSAGE_TYPES.REACTION:
@@ -166,8 +178,6 @@ export default class BusinessAPIProvider extends BaseProvider {
 
     const apiUrl = `${WHATSAPP_GRAPH_API_APP_URL}/${WHATSAPP_API_VERSION}/${phone_number_id}/messages`;
 
-    console.log('Sending WhatsApp API Payload:', JSON.stringify(payload, null, 2));
-
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
@@ -178,7 +188,6 @@ export default class BusinessAPIProvider extends BaseProvider {
     });
 
     const responseData = await response.json();
-    console.log("responseData", responseData)
     if (!response.ok) {
       throw new Error(
         `WhatsApp API error: ${responseData.error?.error_data?.details || 'Unknown error'}`

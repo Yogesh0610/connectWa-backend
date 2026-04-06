@@ -828,7 +828,8 @@ export const getAllTemplates = async (req, res) => {
     };
 
     if (status) {
-      filter.status = status;
+      // Normalize to lowercase — DB stores status as lowercase ("approved", "pending", etc.)
+      filter.status = status.toLowerCase();
     }
 
     if (category) {

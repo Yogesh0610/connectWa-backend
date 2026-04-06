@@ -85,9 +85,23 @@ async function getDynamicSettings() {
 }
 
 function createUploader(subfolder = '') {
+  // Sanitize subfolder: strip any path traversal sequences and leading slashes
+  const safeSuffix = subfolder
+    .replace(/\.\./g, '')
+    .replace(/[/\\]/g, path.sep)
+    .replace(/^[/\\]+/, '');
+
   const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-      const uploadPath = path.join(baseUploadDir, subfolder);
+      const uploadPath = safeSuffix
+        ? path.join(baseUploadDir, safeSuffix)
+        : baseUploadDir;
+      // Verify the resolved path is still within baseUploadDir
+      const resolved = path.resolve(uploadPath);
+      const base = path.resolve(baseUploadDir);
+      if (!resolved.startsWith(base)) {
+        return cb(new Error('Invalid upload path'), null);
+      }
       ensureDirExists(uploadPath);
       cb(null, uploadPath);
     },

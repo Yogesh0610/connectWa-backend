@@ -29,6 +29,13 @@ const whatsappWabaSchema = new mongoose.Schema({
     required: false
   },
 
+  // ✅ NEW
+  secret_key: {
+    type: String,
+    required: false,
+    trim: true
+  },
+
   name: {
     type: String,
     trim: true

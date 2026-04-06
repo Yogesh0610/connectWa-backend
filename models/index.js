@@ -8,14 +8,24 @@ const __dirname = path.dirname(__filename);
 const env = process.env.NODE_ENV || 'development';
 const envConfig = config[env];
 
-const connectDB = async () => {
-  try {
-    const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI || envConfig.mongoUri;
-    await mongoose.connect(mongoUri);
-    console.log('MongoDB connected successfully');
-  } catch (error) {
-    console.error('MongoDB connection error:', error);
-    process.exit(1);
+const connectDB = async (retries = 5, delay = 3000) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI || envConfig.mongoUri;
+      await mongoose.connect(mongoUri, {
+        serverSelectionTimeoutMS: 10000,
+        socketTimeoutMS: 45000,
+      });
+      console.log('MongoDB connected successfully');
+      return;
+    } catch (error) {
+      console.error(`MongoDB connection attempt ${attempt}/${retries} failed:`, error.message);
+      if (attempt === retries) {
+        console.error('All MongoDB connection attempts failed. Exiting.');
+        process.exit(1);
+      }
+      await new Promise((res) => setTimeout(res, delay * attempt));
+    }
   }
 };
 

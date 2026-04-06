@@ -8,10 +8,19 @@ import campaignScheduler from './utils/campaign-scheduler.js';
 import automatedResponseWorker from './utils/automated-response-worker.js';
 import { fixSettingsData } from './utils/fix-settings-data.js';
 import { setContactImportSocketIo } from './queues/contact-import-queue.js';
-import './utils/system-settings.js';
+// import './utils/system-settings.js';
 import { getSequenceQueue } from './queues/sequence-queue.js';
 import statusCronService from './cronjob/status.cronService.js';
 import trialPeriodCronService from './cronjob/trialPeriod.cronService.js';
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Promise Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
 
 async function loadStripeKeysFromSettings() {
   try {
@@ -47,7 +56,7 @@ async function loadRazorpayKeysFromSettings() {
   }
 }
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const httpServer = createServer(app);
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS
@@ -69,11 +78,16 @@ import('./services/whatsapp/unified-whatsapp.service.js').then(module => {
   module.default.setIO(io);
 }).catch(err => console.error('Error setting IO in unifiedWhatsAppService:', err));
 
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+  if (!token) {
+    return next(new Error('Authentication required'));
+  }
+  next();
+});
+
 io.on('connection', (socket) => {
-  console.log('WebSocket client connected:', socket.id);
-  socket.on('disconnect', () => {
-    console.log('WebSocket client disconnected:', socket.id);
-  });
+  socket.on('disconnect', () => {});
 });
 
 (async () => {
@@ -106,4 +120,16 @@ io.on('connection', (socket) => {
     console.error('Error starting server:', err);
     process.exit(1);
   }
+
+  const shutdown = async (signal) => {
+    console.log(`${signal} received, shutting down gracefully`);
+    httpServer.close(() => {
+      console.log('HTTP server closed');
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10000);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 })();
