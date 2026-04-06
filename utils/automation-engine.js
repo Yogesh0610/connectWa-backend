@@ -1,4 +1,4 @@
-import { AutomationFlow, AutomationExecution, Contact, EcommerceOrder, Message, WhatsappPhoneNumber } from '../models/index.js';
+import { AutomationFlow, AutomationExecution, Contact, EcommerceOrder, Message, WhatsappPhoneNumber, FlowSession } from '../models/index.js';
 import unifiedWhatsAppService from '../services/whatsapp/unified-whatsapp.service.js';
 import { PROVIDER_TYPES } from '../services/whatsapp/unified-whatsapp.service.js';
 import automationCache from './automation-cache.js';
@@ -110,6 +110,24 @@ class AutomationEngine {
     try {
       console.log("=====================handleMessageReceived called", eventData);
       const { message, senderNumber, recipientNumber, userId, messageType } = eventData;
+
+      // ── Check for active flow session (user_input waiting for reply) ──────────
+      try {
+        const activeSession = await FlowSession.findOne({
+          sender_number: senderNumber,
+          user_id: userId,
+          status: 'waiting',
+          expires_at: { $gt: new Date() }
+        }).sort({ created_at: -1 }).lean();
+
+        if (activeSession) {
+          console.log(`Resuming flow session ${activeSession._id} for sender ${senderNumber}`);
+          await this.resumeFlowFromSession(activeSession, message || '', eventData);
+          return; // Don't trigger a new flow
+        }
+      } catch (sessionErr) {
+        console.warn('Failed to check flow sessions:', sessionErr.message);
+      }
 
       let contact = null;
       try {
@@ -322,6 +340,18 @@ class AutomationEngine {
 
     for (const node of connectedNodes) {
       const nodeResult = await this.executeNode(node, flow, currentData, executionLog);
+
+      // user_input node is pausing — save session state and stop recursion
+      if (nodeResult.waitForInput) {
+        await this.saveFlowSession(flow, node, { ...currentData, ...nodeResult.output }, nodeResult.variableName);
+        return;
+      }
+
+      // end_flow node — stop the entire chain
+      if (nodeResult.output?.flowEnded) {
+        return;
+      }
+
       if (nodeResult.success) {
         const updatedData = {
           ...currentData,
@@ -987,9 +1017,9 @@ class AutomationEngine {
 
 
   async executeUserInputNode(node, inputData) {
-    // User input requires real-time interaction — handled by the webhook/session layer
-    // At engine level, just pass through so the flow doesn't crash
-    const { question } = node.parameters || {};
+    const { question, variable } = node.parameters || {};
+
+    // Send the question message to the user
     if (question) {
       const sendNode = {
         ...node,
@@ -1002,7 +1032,85 @@ class AutomationEngine {
       };
       await this.executeSendMessageNode(sendNode, inputData).catch(() => {});
     }
-    return { success: true, output: inputData };
+
+    // Signal the engine to pause and wait for user reply
+    return {
+      success: true,
+      waitForInput: true,
+      variableName: variable || null,
+      output: inputData,
+    };
+  }
+
+
+  async saveFlowSession(flow, node, sessionData, variableName) {
+    try {
+      const senderNumber = sessionData.senderNumber;
+      const userId = sessionData.userId || sessionData.user_id;
+      if (!senderNumber || !userId) return;
+
+      // Expire any existing waiting sessions for this sender
+      await FlowSession.updateMany(
+        { sender_number: senderNumber, user_id: userId, status: 'waiting' },
+        { $set: { status: 'expired' } }
+      );
+
+      const { timeout_seconds } = node.parameters || {};
+      const timeoutMs = timeout_seconds ? timeout_seconds * 1000 : 30 * 60 * 1000; // default 30 min
+
+      await FlowSession.create({
+        sender_number: senderNumber,
+        user_id: userId,
+        flow_id: flow._id,
+        whatsapp_phone_number_id: sessionData.whatsappPhoneNumberId || null,
+        current_node_id: node.id,
+        session_data: sessionData,
+        variable_name: variableName || null,
+        status: 'waiting',
+        expires_at: new Date(Date.now() + timeoutMs),
+      });
+
+      console.log(`Flow session saved: waiting for reply from ${senderNumber} at node ${node.id}`);
+    } catch (err) {
+      console.error('Failed to save flow session:', err.message);
+    }
+  }
+
+
+  async resumeFlowFromSession(session, userMessage, eventData) {
+    try {
+      const flow = await AutomationFlow.findById(session.flow_id);
+      if (!flow || !flow.is_active || flow.deleted_at) {
+        await FlowSession.findByIdAndUpdate(session._id, { $set: { status: 'expired' } });
+        return;
+      }
+
+      // Mark session as completed so it won't be matched again
+      await FlowSession.findByIdAndUpdate(session._id, { $set: { status: 'completed' } });
+
+      // Restore context and inject user reply into the named variable
+      const resumeData = { ...(session.session_data || {}) };
+      if (session.variable_name) {
+        resumeData[session.variable_name] = userMessage;
+      }
+      resumeData.userReply = userMessage;
+
+      // Refresh live event fields (phone number may differ between requests)
+      if (eventData.whatsappPhoneNumberId) resumeData.whatsappPhoneNumberId = eventData.whatsappPhoneNumberId;
+      if (eventData.contactId) resumeData.contactId = eventData.contactId;
+
+      const currentNode = flow.nodes.find((n) => n.id === session.current_node_id);
+      if (!currentNode) {
+        console.warn(`Resumed session but node ${session.current_node_id} not found in flow ${flow._id}`);
+        return;
+      }
+
+      console.log(`Resuming flow ${flow.name} from node ${currentNode.id}, reply: "${userMessage}"`);
+      const executionLog = [];
+      await this.processConnectedNodes(flow, currentNode, resumeData, executionLog, resumeData);
+    } catch (err) {
+      console.error('Error resuming flow from session:', err.message);
+    }
   }
 
 

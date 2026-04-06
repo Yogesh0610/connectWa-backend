@@ -88,6 +88,7 @@ import GoogleCalendar from './google-calendar.model.js';
 import GoogleSheet from './google-sheet.model.js';
 
 import Form from './formBuilder.model.js';
+import FlowSession from './flow-session.model.js';
 
 
 import AiPromptLog from './aiPromptLogs.model.js';
@@ -162,6 +163,7 @@ const db = {
   GoogleCalendar,
   GoogleSheet,
   Form,
+  FlowSession,
   mongoose,
 
 
@@ -190,6 +192,6 @@ export {
   WhatsappCallLog,
   Form,
   Submission,
-  Plan, Template, Webhook, Subscription, PaymentHistory, AIModel, AgentTask, AutomationFlow, AutomationExecution, ChatAssignment, Contact, CustomField, Tag, Attachment, Campaign, UserSetting, EcommerceCatalog, EcommerceProduct, EcommerceOrder, EcommerceOrderStatusTemplate, LandingPage, ApiKey, Widget, ShortLink, ImportJob, ReplyMaterial, WorkingHours, Workspace, Sequence, SequenceStep, WabaConfiguration, Tax, GoogleAccount, GoogleCalendar, GoogleSheet, connectDB
+  Plan, Template, Webhook, Subscription, PaymentHistory, AIModel, AgentTask, AutomationFlow, AutomationExecution, ChatAssignment, Contact, CustomField, Tag, Attachment, Campaign, UserSetting, EcommerceCatalog, EcommerceProduct, EcommerceOrder, EcommerceOrderStatusTemplate, LandingPage, ApiKey, Widget, ShortLink, ImportJob, ReplyMaterial, WorkingHours, Workspace, Sequence, SequenceStep, WabaConfiguration, Tax, GoogleAccount, GoogleCalendar, GoogleSheet, FlowSession, connectDB
 
 };
