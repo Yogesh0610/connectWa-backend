@@ -86,6 +86,7 @@ app.use('/api', denyMutationInDemo);
 
 import webhookRoutes from "./routes/webhook.routes.js";
 app.use("/api/webhook", webhookRoutes);
+app.use("/api/webhooks", webhookRoutes);
 
 import authRoutes from "./routes/auth.routes.js";
 import faqRoutes from "./routes/faq.routes.js";
@@ -205,7 +206,9 @@ app.use("/api/automation", automationRoutes);
 app.use("/api/template", templateRoutes);
 app.use("/api/ecommerce-webhook", ecommerceWebhookRoutes);
 app.use("/api/ecommerce-catalog", ecommerceCatalogRoutes);
+app.use("/api/catalogue", ecommerceCatalogRoutes);
 app.use("/api/ecommerce-order", ecommerceOrderRoutes);
+app.use("/api/orders", ecommerceOrderRoutes);
 app.use("/api/contacts", contactRoutes);
 app.use("/api/custom-fields", customFieldRoutes);
 app.use("/api/tags", tagRoutes);
@@ -235,10 +238,13 @@ app.use("/api/chatbots", chatbotRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/google", googleRoutes);
 app.use("/api/forms", formBuilderRoutes);
+app.use("/api/whatsapp/form-builder", formBuilderRoutes);
 app.use("/api/submissions", submissionRoutes);
+app.use("/api/whatsapp/form-builder", submissionRoutes);
 
 
 app.use("/api/waba-configurations", wabaConfigurationRoutes);
+app.use("/api/waba-configuration", wabaConfigurationRoutes);
 app.use("/api/message-bots", messageBotRoutes);
 app.use("/api/whatsapp/calling", whatsappCallingRoutes);
 app.use("/api/currencies", currencyRoutes);

@@ -28,6 +28,14 @@ router.get('/connections', authenticate, checkPermission('view.unified_whatsapp'
 router.get('/phone-numbers', authenticate, checkPermission('view.unified_whatsapp'), unifiedWhatsAppController.getMyPhoneNumbers);
 router.put('/phone-numbers/:phoneNumberId/set-primary', authenticate, checkPermission('update.unified_whatsapp'), unifiedWhatsAppController.setPrimaryPhoneNumber);
 router.get('/:wabaId/phone-numbers', authenticate, checkPermission('view.unified_whatsapp'), unifiedWhatsAppController.getWabaPhoneNumbers);
+router.get('/:wabaId', authenticate, checkPermission('view.unified_whatsapp'), async (req, res) => {
+  try {
+    const { WhatsappWaba } = await import('../models/index.js');
+    const waba = await WhatsappWaba.findOne({ _id: req.params.wabaId, user_id: req.user._id, deleted_at: null }).lean();
+    if (!waba) return res.status(404).json({ success: false, message: 'Connection not found' });
+    res.json({ success: true, data: waba });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
 router.post('/embedded-signup/connection', authenticate, checkPermission('create.unified_whatsapp'), unifiedWhatsAppController.getEmbbededSignupConnection);
 router.get('/contact-profile', authenticate, checkPermission('view.unified_whatsapp'), unifiedWhatsAppController.getContactProfile);
 export default router;

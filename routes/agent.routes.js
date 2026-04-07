@@ -10,6 +10,7 @@ router.use(authenticate);
 router.use(requireSubscription);
 
 router.get('/all', checkPermission('view.agents'), agentController.getAllAgents);
+router.get('/', checkPermission('view.agents'), agentController.getAllAgents);
 router.post('/create', checkPlanLimit('staff'), checkPermission('create.agents'), agentController.createAgent);
 router.put('/:id/update', checkPermission('update.agents'), agentController.updateAgent);
 router.put('/:id/update/status', checkPermission('update.agents'), agentController.updateAgentStatus);
