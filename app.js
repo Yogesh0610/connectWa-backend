@@ -188,7 +188,7 @@ app.get("/api/is-demo-mode", async (req, res) => {
   }
 });
 
-app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/auth", apiLimiter, authRoutes);
 app.use("/api/faq", faqRoutes);
 app.use("/api/inquiry", inquiryRoutes);
 app.use("/api/testimonial", testimonialRoutes);
