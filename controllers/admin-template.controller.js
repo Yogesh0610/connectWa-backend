@@ -389,14 +389,12 @@ export const getAllAdminTemplates = async (req, res) => {
 
     return res.json({
       success: true,
-      data: {
-        templates: templatesWithUrls,
-        pagination: {
-          currentPage: page,
-          totalPages: Math.ceil(totalCount / limit),
-          totalItems: totalCount,
-          itemsPerPage: limit,
-        },
+      data: templatesWithUrls,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalCount / limit),
+        totalItems: totalCount,
+        itemsPerPage: limit,
       },
     });
   } catch (error) {
