@@ -21,10 +21,14 @@ export const handleCallback = async (req, res) => {
     const accessToken = await metaOAuthService.exchangeToken(code);
     const adAccounts = await metaOAuthService.getAdAccounts(accessToken);
 
-    // Store in session for account selection
-    req.session.meta_oauth = { userId, accessToken, adAccounts, expires_at: Date.now() + 10 * 60 * 1000 };
+    // Save all accounts directly (auto-connect all fetched accounts)
+    const saved = await Promise.all(
+      adAccounts.map((account) =>
+        metaOAuthService.saveAdAccount(userId, account, accessToken)
+      )
+    );
 
-    return res.redirect(`${process.env.FRONTEND_URL}/ads/meta/accounts?step=select`);
+    return res.redirect(`${process.env.FRONTEND_URL}/ads/meta/accounts?connected=${saved.length}`);
   } catch (error) {
     console.error("Meta OAuth error:", error.message);
     return res.redirect(`${process.env.FRONTEND_URL}/ads?error=auth_failed`);
