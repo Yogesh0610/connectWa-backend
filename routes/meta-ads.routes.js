@@ -81,6 +81,14 @@ router.delete("/accounts/:id", disconnectAccount);
 
 // ─── Campaigns ───────────────────────────────────────────
 router.get("/campaigns", getCampaigns);
+router.get("/campaigns/:id", async (req, res) => {
+  const { MetaCampaign } = await import("../models/MetaCampaign.js");
+  try {
+    const campaign = await MetaCampaign.findOne({ _id: req.params.id, user_id: req.user._id });
+    if (!campaign) return res.status(404).json({ success: false, message: "Campaign not found" });
+    res.json({ success: true, data: campaign });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
 router.post("/campaigns", createCampaign);
 router.post("/campaigns/sync/:adAccountId", syncCampaigns);
 router.patch("/campaigns/:id/status", updateCampaignStatus);
