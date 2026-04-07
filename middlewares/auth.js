@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
-import { User, Session, ApiKey } from '../models/index.js';
+import { User, Session, ApiKey, Workspace } from '../models/index.js';
 
 const extractApiKeyFromRequest = (req) => {
   const headerKey = req.headers['x-api-key'];
@@ -133,6 +133,29 @@ export const authorizeRoles = (allowedRoles = []) => {
 };
 
 export const authenticateUser = authenticate;
+
+/**
+ * Resolves req.workspace_id from the authenticated user's workspace.
+ * Must be used after authenticate middleware.
+ */
+export const resolveWorkspace = async (req, res, next) => {
+  try {
+    const ownerId = req.user?.owner_id || req.user?._id;
+    if (!ownerId) return next();
+
+    const workspace = await Workspace.findOne({
+      user_id: ownerId,
+      is_active: true,
+      deleted_at: null,
+    }).lean();
+
+    req.workspace_id = workspace?._id || null;
+    next();
+  } catch (err) {
+    console.error('resolveWorkspace error:', err.message);
+    next(); // non-fatal — let controller handle missing workspace_id
+  }
+};
 
 export const authorizeAdmin = (req, res, next) => {
   if (!req.user || req.user.role !== 'super_admin') {

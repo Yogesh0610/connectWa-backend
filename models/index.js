@@ -90,6 +90,10 @@ import GoogleSheet from './google-sheet.model.js';
 import Form from './formBuilder.model.js';
 import FlowSession from './flow-session.model.js';
 
+import { AdLead } from './AdLead.js';
+import { AdLeadSource } from './AdLeadSource.js';
+import { AdAccount } from './AdAccount.js';
+import { GoogleAdAccount } from './GoogleAdAccount.js';
 
 import AiPromptLog from './aiPromptLogs.model.js';
 import Currency from './currency.model.js';
@@ -164,6 +168,10 @@ const db = {
   GoogleSheet,
   Form,
   FlowSession,
+  AdLead,
+  AdLeadSource,
+  AdAccount,
+  GoogleAdAccount,
   mongoose,
 
 
@@ -192,6 +200,10 @@ export {
   WhatsappCallLog,
   Form,
   Submission,
+  AdLead,
+  AdLeadSource,
+  AdAccount,
+  GoogleAdAccount,
   Plan, Template, Webhook, Subscription, PaymentHistory, AIModel, AgentTask, AutomationFlow, AutomationExecution, ChatAssignment, Contact, CustomField, Tag, Attachment, Campaign, UserSetting, EcommerceCatalog, EcommerceProduct, EcommerceOrder, EcommerceOrderStatusTemplate, LandingPage, ApiKey, Widget, ShortLink, ImportJob, ReplyMaterial, WorkingHours, Workspace, Sequence, SequenceStep, WabaConfiguration, Tax, GoogleAccount, GoogleCalendar, GoogleSheet, FlowSession, connectDB
 
 };

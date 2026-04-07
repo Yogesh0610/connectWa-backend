@@ -369,18 +369,31 @@ class AutomationEngine {
       if (node.type === 'condition') {
         // Condition branching: true path uses src-true or src (button/list conditions)
         // false path uses src-false (regular conditions only)
-        if (nodeResult.success) {
-          const trueNodes = [
-            ...this.getConnectedNodesByHandle(flow, node.id, 'src-true'),
-            ...this.getConnectedNodesByHandle(flow, node.id, 'src'),
-          ];
-          for (const trueNode of trueNodes) {
-            await this.processConnectedNodes(flow, trueNode, updatedData, executionLog, originalInputData, newVisited);
+        const branchNodes = nodeResult.success
+          ? [
+              ...this.getConnectedNodesByHandle(flow, node.id, 'src-true'),
+              ...this.getConnectedNodesByHandle(flow, node.id, 'src'),
+            ]
+          : this.getConnectedNodesByHandle(flow, node.id, 'src-false');
+
+        for (const branchNode of branchNodes) {
+          if (newVisited.has(branchNode.id)) continue;
+          // Execute the branch target node directly (not just its children)
+          const branchResult = await this.executeNode(branchNode, flow, updatedData, executionLog);
+
+          if (branchResult.waitForInput) {
+            await this.saveFlowSession(flow, branchNode, { ...updatedData, ...branchResult.output }, branchResult.variableName);
+            return;
           }
-        } else {
-          const falseNodes = this.getConnectedNodesByHandle(flow, node.id, 'src-false');
-          for (const falseNode of falseNodes) {
-            await this.processConnectedNodes(flow, falseNode, updatedData, executionLog, originalInputData, newVisited);
+          if (branchResult.output?.flowEnded) return;
+
+          if (branchResult.success) {
+            const branchUpdated = {
+              ...updatedData,
+              ...branchResult.output,
+              userId: updatedData.userId || originalInputData.userId || originalInputData.user_id,
+            };
+            await this.processConnectedNodes(flow, branchNode, branchUpdated, executionLog, originalInputData, newVisited);
           }
         }
       } else if (nodeResult.success) {
@@ -1167,6 +1180,76 @@ class AutomationEngine {
 
       console.log(`Resuming flow ${flow.name} from node ${currentNode.id}, reply: "${userMessage}"`);
       const executionLog = [];
+
+      // Button and list message nodes store their branch conditions as children of the
+      // TRIGGER node (not of the button_message node itself).  The condition node IDs
+      // encode the button_message they belong to using the pattern:
+      //   cond-btn-___<buttonNodeId>___<btnIdx>___<targetNodeId>
+      //   cond-list-___<listNodeId>___<sectionIdx>___<itemIdx>___<targetNodeId>
+      // We detect this and evaluate those conditions directly instead of traversing
+      // the button_message node's (empty) direct children.
+      const isInteractivePause = currentNode.type === 'send_message' && (
+        currentNode.parameters?.interactive_type === 'button' ||
+        currentNode.parameters?.interactive_type === 'list'
+      );
+
+      if (isInteractivePause) {
+        // Find all condition nodes whose ID contains the button/list message node ID
+        const branchConditions = flow.nodes.filter(
+          (n) => n.type === 'condition' && n.id.includes(`___${session.current_node_id}___`)
+        );
+
+        console.log(`Found ${branchConditions.length} branch conditions for node ${session.current_node_id}`);
+
+        let branchMatched = false;
+        for (const condNode of branchConditions) {
+          console.log(`Evaluating condition node ${condNode.id}, params:`, JSON.stringify(condNode.parameters));
+          const condResult = await this.executeConditionNode(condNode, resumeData);
+          console.log(`Condition result: ${condResult.success}`);
+          if (condResult.success) {
+            // Button/list branch conditions connect from cond node to the first action node via 'src' handle
+            const branchNodes = [
+              ...this.getConnectedNodesByHandle(flow, condNode.id, 'src'),
+              ...this.getConnectedNodesByHandle(flow, condNode.id, 'src-true'),
+            ];
+            console.log(`Branch nodes found: ${branchNodes.map(n => n.id).join(', ')}`);
+            for (const branchNode of branchNodes) {
+              // Execute branchNode directly (processConnectedNodes only executes children, not the node itself)
+              console.log(`Executing branch node ${branchNode.id} (type: ${branchNode.type})`);
+              const nodeResult = await this.executeNode(branchNode, flow, resumeData, executionLog);
+              console.log(`Branch node result: success=${nodeResult.success}, waitForInput=${nodeResult.waitForInput}`);
+              if (nodeResult.waitForInput) {
+                await this.saveFlowSession(flow, branchNode, { ...resumeData, ...nodeResult.output }, nodeResult.variableName);
+                return;
+              }
+              if (nodeResult.success) {
+                const updatedData = {
+                  ...resumeData,
+                  ...nodeResult.output,
+                  userId: resumeData.userId || resumeData.user_id,
+                };
+                await this.processConnectedNodes(flow, branchNode, updatedData, executionLog, resumeData);
+              } else {
+                console.error(`Branch node ${branchNode.id} failed:`, nodeResult.error);
+              }
+            }
+            branchMatched = true;
+            // Stop after first matching branch (only one button/item can be selected)
+            break;
+          }
+        }
+
+        // If no condition matched (or no conditions exist), fall through to the node's
+        // direct children in flow.connections.  This handles list/button messages that
+        // don't have per-item branches — the flow simply continues to the next node.
+        if (!branchMatched) {
+          console.log(`No branch matched for interactive pause — continuing from node ${currentNode.id}`);
+          await this.processConnectedNodes(flow, currentNode, resumeData, executionLog, resumeData);
+        }
+        return;
+      }
+
+      // For user_input pauses: normal graph traversal from the paused node
       await this.processConnectedNodes(flow, currentNode, resumeData, executionLog, resumeData);
     } catch (err) {
       console.error('Error resuming flow from session:', err.message);
