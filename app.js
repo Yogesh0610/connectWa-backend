@@ -224,6 +224,7 @@ app.use("/api/campaign-stats", campaignStatsRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/admin-dashboard", adminDashboardRoutes);
 app.use("/api/admin/templates", adminTemplateRoutes);
+app.use("/api/admin-template", adminTemplateRoutes);
 app.use("/api/landing-page", landingPageRoutes);
 app.use("/api/api-keys", apiKeyRoutes);
 app.use("/api/widgets", widgetRoutes);

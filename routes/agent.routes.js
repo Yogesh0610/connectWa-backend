@@ -15,6 +15,7 @@ router.post('/create', checkPlanLimit('staff'), checkPermission('create.agents')
 router.put('/:id/update', checkPermission('update.agents'), agentController.updateAgent);
 router.put('/:id/update/status', checkPermission('update.agents'), agentController.updateAgentStatus);
 router.delete('/delete', checkPermission('delete.agents'), agentController.deleteAgent);
+router.delete('/', checkPermission('delete.agents'), agentController.deleteAgent);
 router.get('/:id', checkPermission('view.agents'), agentController.getAgentById);
 router.put('/:id/phone-no', checkPermission('update.agents'), agentController.updatePhonenoStatus);
 

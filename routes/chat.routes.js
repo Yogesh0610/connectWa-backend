@@ -11,10 +11,14 @@ router.get('/all', authenticate, checkPermission('manage.conversations'), chatCo
 router.post('/add-tag', authenticate, checkPermission('manage.conversations'), chatController.addTag);
 router.delete('/delete-tag', authenticate, checkPermission('manage.conversations'), chatController.deleteTag);
 router.post('/add-note', authenticate, checkPermission('manage.conversations'), chatController.addNote);
+router.post('/chat-note', authenticate, checkPermission('manage.conversations'), chatController.addNote);
 router.delete('/delete-note', authenticate, checkPermission('manage.conversations'), chatController.deleteNote);
+router.delete('/chat-note', authenticate, checkPermission('manage.conversations'), chatController.deleteNote);
 router.post('/assign', authenticate, checkPermission('manage.conversations'), chatController.assignChatToAgent);
 router.post('/unassign', authenticate, checkPermission('manage.conversations'), chatController.unassignChatFromAgent);
 router.post('/status', authenticate, checkPlanLimit('conversations'), checkPermission('manage.conversations'), chatController.updateChatStatus);
+router.post('/suggest-reply', authenticate, (req, res) => res.json({ success: true, data: { reply: '' } }));
+router.post('/transform', authenticate, (req, res) => res.json({ success: true, data: { text: req.body.text || '' } }));
 
 export default router;
 
