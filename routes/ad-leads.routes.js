@@ -29,7 +29,7 @@ router.post("/webhook/facebook", receiveFbLead);
 router.post("/webhook/google", receiveGoogleLead);
 
 // ─── FB OAuth callback (no auth — FB redirect) ────────────
-router.get("/oauth/facebook", handleFbCallback);
+router.get("/oauth/facebook/callback", handleFbCallback);
 
 // ─── Protected Routes ──────────────────────────────────────
 router.use(authenticate, resolveWorkspace);
