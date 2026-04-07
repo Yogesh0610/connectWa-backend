@@ -12,8 +12,10 @@ export const createAdSet = async (req, res) => {
     res.status(201).json({ success: true, data: adset });
   } catch (error) {
     const metaError = error.response?.data?.error;
-    const message = metaError ? `Meta API: ${metaError.message}` : error.message;
-    console.error("createAdSet error:", metaError || error.message);
+    const message = metaError
+      ? `Meta API: ${metaError.message} (code: ${metaError.code}, subcode: ${metaError.error_subcode}) — ${metaError.error_user_msg || ""}`
+      : error.message;
+    console.error("createAdSet error:", JSON.stringify(metaError || error.message));
     res.status(500).json({ success: false, message });
   }
 };
