@@ -1,4 +1,4 @@
-import { Contact, CustomField, User, Tag, ImportJob } from '../models/index.js';
+import { Contact, CustomField, User, Tag, ImportJob, Role } from '../models/index.js';
 import mongoose from 'mongoose';
 import { getContactExportQueue } from '../queues/contact-export-queue.js';
 import { getContactImportQueue } from '../queues/contact-import-queue.js';
