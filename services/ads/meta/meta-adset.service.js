@@ -30,7 +30,7 @@ class MetaAdSetService {
       optimization_goal = "LEAD_GENERATION",
       start_time,
       end_time,
-      targeting,
+      targeting = {},
       promoted_object,
       status = "PAUSED",
     } = payload;
