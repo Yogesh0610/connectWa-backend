@@ -22,7 +22,7 @@ const validateTags = async (tagIds, userId) => {
     };
   }
 
-  const validTags = await Tag.forUser(req.user.owner_id).select('_id').lean();
+  const validTags = await Tag.forUser(userId).select('_id').lean();
   const validTagObjectIds = validTags.map(tag => tag._id.toString());
 
   for (const tagId of validTagIds) {
@@ -56,7 +56,7 @@ const validatePhoneNumber = (phoneNumber) => {
 const validateCustomFields = async (customFields = {}, userId) => {
   const errors = [];
 
-  const userCustomFields = await CustomField.forUser(req.user.owner_id).lean();
+  const userCustomFields = await CustomField.forUser(userId).lean();
 
   const requiredFields = userCustomFields.filter(f => f.required);
 
