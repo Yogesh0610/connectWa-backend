@@ -24,7 +24,7 @@ export const handleCallback = async (req, res) => {
     // Store in session for account selection
     req.session.meta_oauth = { userId, accessToken, adAccounts, expires_at: Date.now() + 10 * 60 * 1000 };
 
-    return res.redirect(`${process.env.FRONTEND_URL}/ads/accounts?step=select`);
+    return res.redirect(`${process.env.FRONTEND_URL}/ads/meta/accounts?step=select`);
   } catch (error) {
     console.error("Meta OAuth error:", error.message);
     return res.redirect(`${process.env.FRONTEND_URL}/ads?error=auth_failed`);
