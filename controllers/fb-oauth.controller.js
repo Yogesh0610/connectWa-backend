@@ -2,10 +2,11 @@ import { fbOAuthService } from "../services/adLeads/fb-oauth.service.js";
 import { AdLeadSource } from "../models/AdLeadSource.js";
 import WhatsappWaba from "../models/whatsapp-waba.model.js";
 
-// ✅ Helper — fetch user's waba for dynamic app_id + secret_key
-const getUserWaba = async (userId) => {
+// ✅ Helper — fetch waba using owner_id (works for both owner and sub-users)
+const getUserWaba = async (userId, ownerId = null) => {
+  const lookupId = ownerId || userId;
   return await WhatsappWaba.findOne({
-    user_id: userId,
+    user_id: lookupId,
     is_active: true,
     deleted_at: null,
   }).lean();
@@ -14,7 +15,18 @@ const getUserWaba = async (userId) => {
 // Step 1: FB OAuth URL return karo → frontend redirect karega
 export const getFbAuthUrl = async (req, res) => {
   try {
-    const waba = await getUserWaba(req.user._id);
+    // Use owner_id for WABA lookup (sub-users don't have their own WABA)
+    const ownerId = req.user.owner_id || req.user._id;
+    const waba = await getUserWaba(req.user._id, ownerId);
+    const appId = waba?.app_id || process.env.FB_APP_ID;
+
+    if (!appId) {
+      return res.status(400).json({
+        success: false,
+        message: "Facebook App ID not configured. Please set FB_APP_ID in server environment or add app_id in your WABA settings.",
+      });
+    }
+
     const url = fbOAuthService.getAuthUrl(req.user._id.toString(), waba);
     res.json({ success: true, url });
   } catch (error) {
@@ -36,7 +48,7 @@ export const handleFbCallback = async (req, res) => {
     // State se userId nikalo
     const { userId } = JSON.parse(Buffer.from(state, "base64").toString());
 
-    // ✅ Fetch waba for this user
+    // Fetch waba using owner lookup
     const waba = await getUserWaba(userId);
 
     // Tokens exchange karo
