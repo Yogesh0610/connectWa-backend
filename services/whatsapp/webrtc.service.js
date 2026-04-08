@@ -9,6 +9,10 @@ import callAutomationService from './call-automation.service.js';
 import whatsappCallingService from './whatsapp-calling.service.js';
 import axios from 'axios';
 
+// Set by server.js so webrtc service can emit audio frames to browser
+let _humanBridgeIO = null;
+export function setWebRTCSocketIO(io) { _humanBridgeIO = io; }
+
 const activeCalls = new Map();
 const outputQueues = new Map();
 const playbackIntervals = new Map();
@@ -613,6 +617,98 @@ class WebRTCManager extends EventEmitter {
         return false;
     }
 
+
+    /**
+     * Answer a call for a human agent.
+     * Creates the server-side WebRTC peer to Meta, but instead of running the AI
+     * audio pipeline it relays raw PCM frames to/from the agent's browser via socket.
+     */
+    async answerCallForHuman(waCallId, phoneNumberId, sdpOffer, agentStub, callLog) {
+        if (this.connections.has(waCallId)) {
+            return this.connections.get(waCallId)._lastSdpAnswer || '';
+        }
+
+        console.log(`[WebRTC] Initializing human-agent WebRTC bridge for call ${waCallId}`);
+
+        const pc = new RTCPeerConnection({ sdpSemantics: 'unified-plan' });
+        const audioSource = new RTCAudioSource();
+        const outgoingTrack = audioSource.createTrack();
+        pc.addTrack(outgoingTrack);
+
+        const outputQueue = [];
+        outputQueues.set(waCallId, outputQueue);
+        this.connections.set(waCallId, { pc, audioSource, ssrc: 0, _lastSdpAnswer: '', humanMode: true });
+
+        // Playback interval: drain audio queued from the browser back to Meta
+        const playbackInterval = setInterval(() => this.playAudioFrame(waCallId), 10);
+        playbackIntervals.set(waCallId, playbackInterval);
+
+        pc.ontrack = (event) => {
+            const audioSink = new RTCAudioSink(event.track);
+            const conn = this.connections.get(waCallId);
+            if (conn) conn.audioSink = audioSink;
+
+            // Audio relay starts only after agent accepts (relayUserId is set via startHumanAudioRelay)
+            audioSink.ondata = (data) => {
+                if (!_humanBridgeIO) return;
+                const connection = this.connections.get(waCallId);
+                const userId = connection?.relayUserId;
+                if (!userId) return; // hold audio until agent accepts
+                const buf = Buffer.from(data.samples.buffer);
+                _humanBridgeIO.to(`user:${userId}`).emit('call:audio:from_contact', {
+                    waCallId,
+                    pcm: buf.toString('base64'),
+                    sampleRate: data.sampleRate,
+                });
+            };
+        };
+
+        pc.onconnectionstatechange = () => {
+            const state = pc.connectionState;
+            console.log(`[WebRTC] Human bridge connection state: ${state} for ${waCallId}`);
+            // Only cleanup on terminal states — 'disconnected' can recover
+            if (state === 'failed' || state === 'closed') {
+                this.cleanup(waCallId);
+            }
+        };
+
+        await pc.setRemoteDescription({ type: 'offer', sdp: sdpOffer });
+        const answer = await pc.createAnswer();
+        const modifiedSdp = answer.sdp.replace(/a=setup:actpass/g, 'a=setup:active');
+        await pc.setLocalDescription({ type: 'answer', sdp: modifiedSdp });
+
+        const conn = this.connections.get(waCallId);
+        if (conn) conn._lastSdpAnswer = modifiedSdp;
+
+        return modifiedSdp;
+    }
+
+    /**
+     * Called when the human agent accepts the call in the browser.
+     * Enables audio relay: Meta audio → browser, browser audio → Meta.
+     */
+    startHumanAudioRelay(waCallId, userId) {
+        const conn = this.connections.get(waCallId);
+        if (!conn) {
+            console.warn(`[WebRTC] startHumanAudioRelay: no connection for ${waCallId}`);
+            return false;
+        }
+        conn.relayUserId = userId;
+        console.log(`[WebRTC] Audio relay started for call ${waCallId} → user ${userId}`);
+        return true;
+    }
+
+    /**
+     * Push PCM audio received from the browser into the outgoing queue for Meta.
+     * Called from the socket handler when the browser sends 'call:audio:to_contact'.
+     */
+    queueHumanAudioFrame(waCallId, pcmBase64) {
+        const queue = outputQueues.get(waCallId);
+        if (!queue) return;
+        const buf = Buffer.from(pcmBase64, 'base64');
+        const samples = new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2);
+        queue.push(samples);
+    }
 
     getOutboundConnection(callId) {
         return this.outboundConnections.get(callId);

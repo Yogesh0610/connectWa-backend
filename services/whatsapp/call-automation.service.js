@@ -7,6 +7,7 @@ import FormData from 'form-data';
 import whatsappCallingService from './whatsapp-calling.service.js';
 import webrtcService from './webrtc.service.js';
 import opusscript from 'opusscript';
+import { routeToHuman, getHumanBridgeIO } from './human-call-bridge.service.js';
 
 
 const callAudioBuffers = new Map();
@@ -46,6 +47,20 @@ class CallAutomationService {
                             });
                         }
 
+                        // ── Human agent routing (Option C) ────────────────────
+                        if (agent.agent_type === 'human') {
+                            await routeToHuman({
+                                waCallId,
+                                phoneNumberId,
+                                sdpOffer: session.sdp,
+                                agent,
+                                contact,
+                                callLog,
+                            });
+                            return; // don't proceed with AI pipeline
+                        }
+
+                        // ── AI agent (existing flow) ──────────────────────────
                         console.log(`Answering call ${waCallId} from ${contactNumber}`);
                         await whatsappCallingService.answerCall(phoneNumberId, waCallId, session.sdp, agent, contact, callLog);
 
@@ -1194,6 +1209,15 @@ async executeFunctionWithCollectedParams(functionDef, params, callLog) {
         callLog.duration = Math.floor((callLog.end_time - callLog.start_time) / 1000);
         await callLog.save();
         console.log(`Call ${callLog.wa_call_id} terminated.`);
+
+        // Notify agent browser so active call panel auto-closes
+        const io = getHumanBridgeIO();
+        if (io && callLog.notified_user_id) {
+            io.to(`user:${callLog.notified_user_id}`).emit('call:ended', {
+                waCallId: callLog.wa_call_id,
+                callLogId: callLog._id.toString(),
+            });
+        }
     }
 
 
