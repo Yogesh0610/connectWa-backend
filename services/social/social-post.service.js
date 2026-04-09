@@ -2,6 +2,7 @@ import { SocialPost } from '../../models/SocialPost.js';
 import { SocialAccount } from '../../models/SocialAccount.js';
 import { linkedInService } from './social-linkedin.service.js';
 import { metaSocialPostService } from './social-meta-post.service.js';
+import { twitterService } from './social-twitter.service.js';
 
 class SocialPostService {
   // ── Publish one target ────────────────────────────────────────────────────────
@@ -64,6 +65,13 @@ class SocialPostService {
       return { platform_post_id: postId };
     }
 
+    // ── Twitter ───────────────────────────────────────────────────────────────
+    if (target.platform === 'twitter') {
+      const freshToken = await twitterService.ensureFreshToken(account);
+      const tweetId = await twitterService.createTweet(freshToken, { content, hashtags, link_url });
+      return { platform_post_id: tweetId };
+    }
+
     throw new Error(`Unsupported platform: ${target.platform}`);
   }
 
@@ -117,6 +125,9 @@ class SocialPostService {
         let stats = {};
         if (target.platform === 'linkedin') {
           stats = await linkedInService.getPostAnalytics(account.access_token, target.platform_post_id);
+        } else if (target.platform === 'twitter') {
+          const freshToken = await twitterService.ensureFreshToken(account);
+          stats = await twitterService.getTweetMetrics(freshToken, target.platform_post_id);
         } else if (target.platform === 'facebook') {
           const page = account.pages?.find(p => p.page_id === target.account_id);
           const tok = page?.access_token || account.access_token;

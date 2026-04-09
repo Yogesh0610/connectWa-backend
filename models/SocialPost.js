@@ -58,9 +58,15 @@ const socialPostSchema = new mongoose.Schema({
     default: 'draft',
   },
 
-  scheduled_at: { type: Date },
-  published_at: { type: Date },
-  deleted_at:   { type: Date, default: null },
+  scheduled_at:  { type: Date },
+  timezone:      { type: String, default: 'UTC' }, // IANA timezone
+  published_at:  { type: Date },
+  deleted_at:    { type: Date, default: null },
+
+  // Retry tracking
+  retry_count:   { type: Number, default: 0 },
+  last_attempt_at: { type: Date },
+  max_retries:   { type: Number, default: 3 },
 }, { timestamps: true });
 
 socialPostSchema.index({ user_id: 1, status: 1, createdAt: -1 });

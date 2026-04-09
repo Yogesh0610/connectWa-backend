@@ -1,5 +1,6 @@
 import { SocialAccount } from '../models/SocialAccount.js';
 import { linkedInService } from '../services/social/social-linkedin.service.js';
+import { twitterService }  from '../services/social/social-twitter.service.js';
 
 // ── LinkedIn OAuth ────────────────────────────────────────────────────────────
 
@@ -63,6 +64,28 @@ export const disconnectAccount = async (req, res) => {
     res.json({ success: true, message: 'Account disconnected' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── Twitter OAuth ─────────────────────────────────────────────────────────────
+
+export const getTwitterAuthUrl = (req, res) => {
+  const url = twitterService.getAuthUrl(req.user._id);
+  res.json({ success: true, data: { url } });
+};
+
+export const handleTwitterCallback = async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) {
+    return res.redirect(`${process.env.FRONTEND_URL}/social/accounts?error=${encodeURIComponent(error)}`);
+  }
+  try {
+    const tokenData = await twitterService.exchangeCode(code, state);
+    const account   = await twitterService.connectAccount(tokenData.userId, tokenData);
+    res.redirect(`${process.env.FRONTEND_URL}/social/accounts?connected=twitter&id=${account._id}`);
+  } catch (err) {
+    console.error('[SocialAccount] Twitter callback error:', err.message);
+    res.redirect(`${process.env.FRONTEND_URL}/social/accounts?error=${encodeURIComponent(err.message)}`);
   }
 };
 

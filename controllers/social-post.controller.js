@@ -1,6 +1,8 @@
 import { SocialPost }    from '../models/SocialPost.js';
 import { SocialAccount } from '../models/SocialAccount.js';
-import { socialPostService } from '../services/social/social-post.service.js';
+import { socialPostService }    from '../services/social/social-post.service.js';
+import { socialAnalyticsService } from '../services/social/social-analytics.service.js';
+import socialScheduler from '../utils/social-scheduler.js';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -12,14 +14,14 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 export const upload = multer({
   storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadDir),
-    filename:    (req, file, cb) => {
+    destination: (_req, _file, cb) => cb(null, uploadDir),
+    filename:    (_req, file, cb) => {
       const ext = path.extname(file.originalname);
       cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
     },
   }),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowed = /image\/(jpeg|png|gif|webp)|video\/(mp4|mov)/;
     cb(null, allowed.test(file.mimetype));
   },
@@ -174,6 +176,83 @@ export const deletePost = async (req, res) => {
     post.deleted_at = new Date();
     await post.save();
     res.json({ success: true, message: 'Post deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── Retry Failed Post ─────────────────────────────────────────────────────────
+
+export const retryPost = async (req, res) => {
+  try {
+    const post = await SocialPost.findOne({ _id: req.params.id, user_id: req.user._id });
+    if (!post) return res.status(404).json({ success: false, message: 'Post not found' });
+    if (post.status !== 'failed') return res.status(400).json({ success: false, message: 'Only failed posts can be retried' });
+
+    await socialScheduler.resetForRetry(post._id);
+    res.json({ success: true, message: 'Post queued for retry' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── Analytics Dashboard ───────────────────────────────────────────────────────
+
+export const getAnalytics = async (req, res) => {
+  try {
+    const days = Number(req.query.days) || 30;
+    const [overview, timeline, topPosts, profileVsPage] = await Promise.all([
+      socialAnalyticsService.getOverview(req.user._id, days),
+      socialAnalyticsService.getEngagementTimeline(req.user._id, days),
+      socialAnalyticsService.getTopPosts(req.user._id, 5),
+      socialAnalyticsService.getProfileVsPage(req.user._id),
+    ]);
+    res.json({ success: true, data: { overview, timeline, topPosts, profileVsPage } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── Bulk Schedule ─────────────────────────────────────────────────────────────
+// Accepts an array of posts, each with content + scheduled_at + targets
+
+export const bulkSchedule = async (req, res) => {
+  try {
+    const { posts } = req.body;
+    if (!Array.isArray(posts) || !posts.length) {
+      return res.status(400).json({ success: false, message: 'posts[] array is required' });
+    }
+
+    const created = [];
+    const errors  = [];
+
+    for (const [i, p] of posts.entries()) {
+      try {
+        if (!p.content?.trim()) throw new Error('content is required');
+        if (!p.targets?.length) throw new Error('targets[] is required');
+        if (!p.scheduled_at)    throw new Error('scheduled_at is required');
+
+        const post = await SocialPost.create({
+          user_id:      req.user._id,
+          title:        p.title || null,
+          content:      p.content,
+          hashtags:     p.hashtags || [],
+          link_url:     p.link_url || null,
+          targets:      p.targets,
+          status:       'scheduled',
+          scheduled_at: new Date(p.scheduled_at),
+          timezone:     p.timezone || 'UTC',
+        });
+        created.push(post._id);
+      } catch (err) {
+        errors.push({ index: i, error: err.message });
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      data: { created: created.length, failed: errors.length, errors },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
