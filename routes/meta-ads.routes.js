@@ -24,6 +24,7 @@ import {
   updateCampaignStatus,
   getCampaignInsights,
   deleteCampaign,
+  refreshAccountToken,
 } from "../controllers/meta-campaign.controller.js";
 
 // Ad Sets (IMPORTANT: only from ONE file)
@@ -78,6 +79,7 @@ router.post("/oauth/accounts", saveSelectedAccounts);
 router.post("/accounts/manual", connectManual);
 router.get("/accounts", getAdAccounts);
 router.delete("/accounts/:id", disconnectAccount);
+router.post("/accounts/:id/refresh-token", refreshAccountToken);
 
 // ─── Campaigns ───────────────────────────────────────────
 router.get("/campaigns", getCampaigns);

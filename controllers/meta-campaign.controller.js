@@ -65,3 +65,12 @@ export const deleteCampaign = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const refreshAccountToken = async (req, res) => {
+  try {
+    const result = await metaCampaignService.refreshToken(req.params.id);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

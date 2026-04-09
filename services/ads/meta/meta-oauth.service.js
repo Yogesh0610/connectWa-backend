@@ -6,7 +6,7 @@ class MetaOAuthService {
     this.appId = process.env.META_APP_ID;
     this.appSecret = process.env.META_APP_SECRET;
     this.redirectUri = `${process.env.APP_URL}/api/meta-ads/oauth/callback`;
-    this.apiVersion = "v19.0";
+    this.apiVersion = "v21.0";
     this.baseUrl = `https://graph.facebook.com/${this.apiVersion}`;
   }
 

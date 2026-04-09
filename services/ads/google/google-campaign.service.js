@@ -141,6 +141,8 @@ class GoogleCampaignService {
   // Sync campaigns from Google
   async syncCampaigns(adAccountDbId) {
     const customer = await getGoogleCustomer(adAccountDbId);
+    const account = await GoogleAdAccount.findById(adAccountDbId).select("user_id google_customer_id");
+    if (!account) throw new Error("Google Ad Account not found");
 
     const campaigns = await customer.query(`
       SELECT
@@ -171,20 +173,25 @@ class GoogleCampaignService {
       await GoogleCampaign.findOneAndUpdate(
         { google_campaign_id: String(c.id), ad_account_id: adAccountDbId },
         {
-          google_campaign_id: String(c.id),
-          name: c.name,
-          status: c.status,
-          campaign_type: c.advertising_channel_type,
-          bidding_strategy: c.bidding_strategy_type,
-          is_synced: true,
-          last_synced_at: new Date(),
-          stats: {
-            impressions: Number(m.impressions || 0),
-            clicks: Number(m.clicks || 0),
-            conversions: Number(m.conversions || 0),
-            spend_micros: Number(m.cost_micros || 0),
-            ctr: Number(m.ctr || 0),
-            average_cpc: Number(m.average_cpc || 0),
+          $set: {
+            user_id: account.user_id,
+            ad_account_id: adAccountDbId,
+            google_customer_id: account.google_customer_id,
+            google_campaign_id: String(c.id),
+            name: c.name,
+            status: c.status,
+            campaign_type: c.advertising_channel_type,
+            bidding_strategy: c.bidding_strategy_type,
+            is_synced: true,
+            last_synced_at: new Date(),
+            stats: {
+              impressions: Number(m.impressions || 0),
+              clicks: Number(m.clicks || 0),
+              conversions: Number(m.conversions || 0),
+              spend_micros: Number(m.cost_micros || 0),
+              ctr: Number(m.ctr || 0),
+              average_cpc: Number(m.average_cpc || 0),
+            },
           },
         },
         { upsert: true, new: true }

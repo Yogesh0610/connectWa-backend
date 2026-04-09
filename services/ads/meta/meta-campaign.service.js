@@ -4,14 +4,14 @@ import { AdAccount } from "../../../models/AdAccount.js";
 
 class MetaCampaignService {
   constructor() {
-    this.apiVersion = "v19.0";
+    this.apiVersion = "v21.0";
     this.baseUrl = `https://graph.facebook.com/${this.apiVersion}`;
   }
 
   async getToken(adAccountDbId) {
-    const account = await AdAccount.findById(adAccountDbId).select("meta_access_token meta_ad_account_id");
+    const account = await AdAccount.findById(adAccountDbId).select("meta_access_token meta_ad_account_id user_id");
     if (!account) throw new Error("Ad account not found");
-    return { token: account.meta_access_token, accountId: account.meta_ad_account_id };
+    return { token: account.meta_access_token, accountId: account.meta_ad_account_id, userId: account.user_id };
   }
 
   // Create campaign on Meta + save locally
@@ -70,7 +70,7 @@ class MetaCampaignService {
 
   // Get all campaigns from Meta + sync
   async syncCampaigns(adAccountDbId) {
-    const { token, accountId } = await this.getToken(adAccountDbId);
+    const { token, accountId, userId } = await this.getToken(adAccountDbId);
 
     const res = await axios.get(
       `${this.baseUrl}/${accountId}/campaigns`,
@@ -85,28 +85,33 @@ class MetaCampaignService {
 
     const campaigns = res.data.data;
 
-    // Upsert all
+    // Upsert all — always set user_id and ad_account_id so synced campaigns are queryable
     for (const c of campaigns) {
-      const leads = c.insights?.data?.[0]?.actions?.find((a) => a.action_type === "lead")?.value || 0;
+      const insights = c.insights?.data?.[0] || {};
+      const leads = insights.actions?.find((a) => a.action_type === "lead")?.value || 0;
       await MetaCampaign.findOneAndUpdate(
         { meta_campaign_id: c.id },
         {
-          meta_campaign_id: c.id,
-          name: c.name,
-          objective: c.objective,
-          status: c.status,
-          daily_budget: c.daily_budget,
-          lifetime_budget: c.lifetime_budget,
-          bid_strategy: c.bid_strategy,
-          start_time: c.start_time,
-          end_time: c.stop_time,
-          is_synced: true,
-          last_synced_at: new Date(),
-          stats: {
-            impressions: c.insights?.data?.[0]?.impressions || 0,
-            clicks: c.insights?.data?.[0]?.clicks || 0,
-            leads: Number(leads),
-            spend: c.insights?.data?.[0]?.spend || 0,
+          $set: {
+            user_id: userId,
+            ad_account_id: adAccountDbId,
+            meta_campaign_id: c.id,
+            name: c.name,
+            objective: c.objective,
+            status: c.status,
+            daily_budget: c.daily_budget || null,
+            lifetime_budget: c.lifetime_budget || null,
+            bid_strategy: c.bid_strategy,
+            start_time: c.start_time || null,
+            end_time: c.stop_time || null,
+            is_synced: true,
+            last_synced_at: new Date(),
+            stats: {
+              impressions: Number(insights.impressions || 0),
+              clicks: Number(insights.clicks || 0),
+              leads: Number(leads),
+              spend: Number(insights.spend || 0),
+            },
           },
         },
         { upsert: true, new: true }
@@ -165,6 +170,31 @@ class MetaCampaignService {
     );
 
     return res.data.data?.[0] || {};
+  }
+
+  /**
+   * Refresh Meta long-lived token (valid ~60 days).
+   * Meta auto-extends validity on each refresh request.
+   */
+  async refreshToken(adAccountDbId) {
+    const account = await AdAccount.findById(adAccountDbId).select("meta_access_token");
+    if (!account) throw new Error("Ad account not found");
+
+    const res = await axios.get(`${this.baseUrl}/oauth/access_token`, {
+      params: {
+        grant_type: "fb_exchange_token",
+        client_id: process.env.META_APP_ID,
+        client_secret: process.env.META_APP_SECRET,
+        fb_exchange_token: account.meta_access_token,
+      },
+    });
+
+    await AdAccount.findByIdAndUpdate(adAccountDbId, {
+      meta_access_token: res.data.access_token,
+      last_synced_at: new Date(),
+    });
+
+    return { success: true, message: "Token refreshed" };
   }
 }
 
