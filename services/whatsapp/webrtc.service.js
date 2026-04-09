@@ -700,14 +700,22 @@ class WebRTCManager extends EventEmitter {
 
     /**
      * Push PCM audio received from the browser into the outgoing queue for Meta.
+     * Browser sends 48 kHz mono Int16 PCM; WebRTC stack expects 8 kHz frames of 80 samples (10 ms).
      * Called from the socket handler when the browser sends 'call:audio:to_contact'.
      */
     queueHumanAudioFrame(waCallId, pcmBase64) {
         const queue = outputQueues.get(waCallId);
         if (!queue) return;
         const buf = Buffer.from(pcmBase64, 'base64');
-        const samples = new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2);
-        queue.push(samples);
+        const samples48k = new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2);
+        // Resample from 48 kHz (browser) → 8 kHz (WebRTC) then push as 80-sample frames
+        const samples8k = this._resampleInt16(samples48k, 48000, 8000);
+        const FRAME_SIZE = 80;
+        for (let i = 0; i < samples8k.length; i += FRAME_SIZE) {
+            const frame = new Int16Array(FRAME_SIZE);
+            frame.set(samples8k.subarray(i, Math.min(i + FRAME_SIZE, samples8k.length)));
+            queue.push(frame);
+        }
     }
 
     getOutboundConnection(callId) {

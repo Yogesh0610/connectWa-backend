@@ -1,4 +1,4 @@
-import { WhatsappCallAgent, WhatsappCallLog, WhatsappCallSetting, Contact, AIModel, WhatsappPhoneNumber } from '../../models/index.js';
+import { WhatsappCallAgent, WhatsappCallLog, WhatsappCallSetting, Contact, AIModel, WhatsappPhoneNumber, Message } from '../../models/index.js';
 import wrtcPkg from '@roamhq/wrtc';
 import axios from 'axios';
 import fs from 'fs';
@@ -1217,6 +1217,49 @@ async executeFunctionWithCollectedParams(functionDef, params, callLog) {
                 waCallId: callLog.wa_call_id,
                 callLogId: callLog._id.toString(),
             });
+        }
+
+        // Create a call message in the chat so it appears in chat history
+        await this._createCallChatMessage(callLog, 'completed');
+    }
+
+    async _createCallChatMessage(callLog, waStatus) {
+        try {
+            const contact = await Contact.findById(callLog.contact_id).lean();
+            if (!contact) return;
+
+            const phoneNumber = await WhatsappPhoneNumber.findOne({
+                phone_number_id: callLog.phone_number_id,
+                deleted_at: null
+            }).lean();
+
+            const myNumber = phoneNumber?.display_phone_number || null;
+            const durationSec = callLog.duration || 0;
+            const mm = String(Math.floor(durationSec / 60)).padStart(2, '0');
+            const ss = String(durationSec % 60).padStart(2, '0');
+            const content = `WhatsApp Call${durationSec > 0 ? ` — ${mm}:${ss}` : ''}`;
+
+            await Message.create({
+                user_id: callLog.user_id,
+                contact_id: callLog.contact_id,
+                sender_number: contact.phone_number,
+                recipient_number: myNumber,
+                message_type: 'call',
+                wa_status: waStatus,
+                direction: callLog.call_type === 'outbound' ? 'outbound' : 'inbound',
+                from_me: callLog.call_type === 'outbound',
+                content,
+                wa_timestamp: callLog.end_time || new Date(),
+                provider: 'business_api',
+                metadata: {
+                    wa_call_id: callLog.wa_call_id,
+                    duration: durationSec,
+                    routing_type: callLog.routing_type,
+                },
+            });
+            console.log(`[CallAutomation] Created call chat message for ${callLog.wa_call_id}`);
+        } catch (err) {
+            console.error('[CallAutomation] Failed to create call chat message:', err.message);
         }
     }
 

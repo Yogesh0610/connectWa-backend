@@ -11,7 +11,7 @@
  *   4. Agent rejects / timeout → server terminates the call
  */
 
-import { WhatsappCallLog, WhatsappCallSetting } from '../../models/index.js';
+import { WhatsappCallLog, WhatsappCallSetting, Contact, WhatsappPhoneNumber, Message } from '../../models/index.js';
 import webrtcService from './webrtc.service.js';
 import whatsappCallingService from './whatsapp-calling.service.js';
 
@@ -128,7 +128,7 @@ export async function humanAnswerCall({ waCallId, callLogId }) {
 }
 
 /**
- * Human agent rejected the call.
+ * Human agent rejected the call or hung up.
  */
 export async function humanRejectCall({ waCallId, callLogId }) {
     const pending = pendingCalls.get(waCallId);
@@ -138,11 +138,14 @@ export async function humanRejectCall({ waCallId, callLogId }) {
         await whatsappCallingService.terminateCall(pending.phoneNumberId, waCallId);
     }
 
-    await WhatsappCallLog.findByIdAndUpdate(callLogId, {
+    const callLog = await WhatsappCallLog.findByIdAndUpdate(callLogId, {
         status: 'missed',
         end_time: new Date(),
         routing_type: 'human_webrtc',
-    });
+    }, { new: true });
+
+    // Create missed/rejected call message in chat history
+    if (callLog) await _createCallChatMessage(callLog, 'missed');
 
     console.log(`[HumanBridge] Call ${waCallId} rejected by human agent`);
 }
@@ -168,5 +171,47 @@ async function handleRingTimeout(waCallId, callLogId, assignedUserId) {
         console.warn(`[HumanBridge] Could not terminate timed-out call ${waCallId}:`, e.message);
     }
 
+    await _createCallChatMessage(callLog, 'missed');
     console.log(`[HumanBridge] Call ${waCallId} timed out — marked missed`);
+}
+
+/** Create a 'call' type message in the chat so call events appear in chat history */
+async function _createCallChatMessage(callLog, waStatus) {
+    try {
+        const contact = await Contact.findById(callLog.contact_id).lean();
+        if (!contact) return;
+
+        const phoneNumber = await WhatsappPhoneNumber.findOne({
+            phone_number_id: callLog.phone_number_id,
+            deleted_at: null
+        }).lean();
+
+        const myNumber = phoneNumber?.display_phone_number || null;
+        const durationSec = callLog.duration || 0;
+        const mm = String(Math.floor(durationSec / 60)).padStart(2, '0');
+        const ss = String(durationSec % 60).padStart(2, '0');
+        const content = `WhatsApp Call${durationSec > 0 ? ` — ${mm}:${ss}` : ''}`;
+
+        await Message.create({
+            user_id: callLog.user_id,
+            contact_id: callLog.contact_id,
+            sender_number: contact.phone_number,
+            recipient_number: myNumber,
+            message_type: 'call',
+            wa_status: waStatus,
+            direction: 'inbound',
+            from_me: false,
+            content,
+            wa_timestamp: callLog.end_time || new Date(),
+            provider: 'business_api',
+            metadata: {
+                wa_call_id: callLog.wa_call_id,
+                duration: durationSec,
+                routing_type: callLog.routing_type,
+            },
+        });
+        console.log(`[HumanBridge] Created call chat message for ${callLog.wa_call_id} (${waStatus})`);
+    } catch (err) {
+        console.error('[HumanBridge] Failed to create call chat message:', err.message);
+    }
 }
