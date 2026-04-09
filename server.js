@@ -5,6 +5,7 @@ import app from './app.js';
 import { connectDB } from './models/index.js';
 import Setting from './models/setting.model.js';
 import campaignScheduler from './utils/campaign-scheduler.js';
+import socialScheduler from './utils/social-scheduler.js';
 import automatedResponseWorker from './utils/automated-response-worker.js';
 import { fixSettingsData } from './utils/fix-settings-data.js';
 import { setContactImportSocketIo } from './queues/contact-import-queue.js';
@@ -139,6 +140,9 @@ io.on('connection', (socket) => {
 
       campaignScheduler.start();
       console.log('Campaign scheduler started');
+
+      socialScheduler.start();
+      console.log('Social post scheduler started');
 
       automatedResponseWorker.start();
       console.log('Automated response worker started');

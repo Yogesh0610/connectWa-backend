@@ -259,6 +259,9 @@ app.use("/api/ad-leads", adLeadsRoutes);
 app.use("/api/google-ads", googleAdsRoutes);
 app.use("/api/meta-ads", metaAdsRoutes);
 
+import socialRoutes from "./routes/social.routes.js";
+app.use("/api/social", socialRoutes);
+
 app.get("/short_link/wp/:code", redirectShortLink);
 
 app.get("/webhook/whatsapp", handleWebhookVerification);

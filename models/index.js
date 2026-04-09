@@ -94,6 +94,8 @@ import { AdLead } from './AdLead.js';
 import { AdLeadSource } from './AdLeadSource.js';
 import { AdAccount } from './AdAccount.js';
 import { GoogleAdAccount } from './GoogleAdAccount.js';
+import { SocialAccount } from './SocialAccount.js';
+import { SocialPost } from './SocialPost.js';
 
 import AiPromptLog from './aiPromptLogs.model.js';
 import Currency from './currency.model.js';
@@ -172,6 +174,8 @@ const db = {
   AdLeadSource,
   AdAccount,
   GoogleAdAccount,
+  SocialAccount,
+  SocialPost,
   mongoose,
 
 
@@ -204,6 +208,8 @@ export {
   AdLeadSource,
   AdAccount,
   GoogleAdAccount,
+  SocialAccount,
+  SocialPost,
   Plan, Template, Webhook, Subscription, PaymentHistory, AIModel, AgentTask, AutomationFlow, AutomationExecution, ChatAssignment, Contact, CustomField, Tag, Attachment, Campaign, UserSetting, EcommerceCatalog, EcommerceProduct, EcommerceOrder, EcommerceOrderStatusTemplate, LandingPage, ApiKey, Widget, ShortLink, ImportJob, ReplyMaterial, WorkingHours, Workspace, Sequence, SequenceStep, WabaConfiguration, Tax, GoogleAccount, GoogleCalendar, GoogleSheet, FlowSession, connectDB
 
 };
