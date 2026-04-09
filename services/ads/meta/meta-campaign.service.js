@@ -23,6 +23,7 @@ class MetaCampaignService {
       objective,
       status = "PAUSED",
       special_ad_categories = [],
+      buying_type = "AUCTION",
       daily_budget,
       lifetime_budget,
       bid_strategy = "LOWEST_COST_WITHOUT_CAP",
@@ -30,20 +31,25 @@ class MetaCampaignService {
       end_time,
     } = payload;
 
+    // RESERVED buying_type requires lifetime budget, not daily
+    const metaPayload = {
+      name,
+      objective,
+      status,
+      special_ad_categories,
+      buying_type,
+      ...(daily_budget    && { daily_budget:    Math.round(daily_budget    * 100) }),
+      ...(lifetime_budget && { lifetime_budget: Math.round(lifetime_budget * 100) }),
+      // bid_strategy only valid for AUCTION; RESERVED uses FIXED_CPM which is implicit
+      ...(buying_type !== "RESERVED" && { bid_strategy }),
+      ...(start_time && { start_time: new Date(start_time).toISOString() }),
+      ...(end_time   && { end_time:   new Date(end_time).toISOString()   }),
+    };
+
     // Call Meta API
     const res = await axios.post(
       `${this.baseUrl}/${accountId}/campaigns`,
-      {
-        name,
-        objective,
-        status,
-        special_ad_categories,
-        ...(daily_budget && { daily_budget: Math.round(daily_budget * 100) }),
-        ...(lifetime_budget && { lifetime_budget: Math.round(lifetime_budget * 100) }),
-        bid_strategy,
-        ...(start_time && { start_time: new Date(start_time).toISOString() }),
-        ...(end_time && { end_time: new Date(end_time).toISOString() }),
-      },
+      metaPayload,
       { params: { access_token: token } }
     );
 
@@ -56,6 +62,7 @@ class MetaCampaignService {
       objective,
       status,
       special_ad_categories,
+      buying_type,
       daily_budget: daily_budget ? Math.round(daily_budget * 100) : null,
       lifetime_budget: lifetime_budget ? Math.round(lifetime_budget * 100) : null,
       bid_strategy,

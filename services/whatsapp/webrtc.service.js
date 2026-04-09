@@ -143,30 +143,39 @@ class WebRTCManager extends EventEmitter {
         const { audioSource } = connection;
         const outputQueue = outputQueues.get(waCallId);
 
+        // Human-bridge calls use 48 kHz / 480-sample frames; AI calls use 8 kHz / 80-sample frames
+        const sampleRate = connection.humanMode ? 48000 : 8000;
+        const frameSize = connection.humanMode ? 480 : 80;
+
         if (!outputQueue || outputQueue.length === 0) {
-            const silence = new Int16Array(80).fill(0);
+            const silence = new Int16Array(frameSize).fill(0);
             try {
                 audioSource.onData({
                     samples: silence,
-                    sampleRate: 8000,
+                    sampleRate,
                     bitsPerSample: 16,
                     channelCount: 1,
-                    numberOfFrames: 80
+                    numberOfFrames: frameSize
                 });
             } catch (e) {}
             return;
         }
 
-        const frame = outputQueue.shift();
-        try {
-            audioSource.onData({
-                samples: frame,
-                sampleRate: 8000,
-                bitsPerSample: 16,
-                channelCount: 1,
-                numberOfFrames: 80
-            });
-        } catch (e) {}
+        // Catch up if timer drifted: drain all frames that should have played by now
+        // but cap at 3 to avoid bursting (one extra frame = tolerable)
+        const toDrain = Math.min(outputQueue.length, connection.humanMode ? 2 : 1);
+        for (let d = 0; d < toDrain; d++) {
+            const frame = outputQueue.shift();
+            try {
+                audioSource.onData({
+                    samples: frame,
+                    sampleRate,
+                    bitsPerSample: 16,
+                    channelCount: 1,
+                    numberOfFrames: frameSize
+                });
+            } catch (e) {}
+        }
     }
 
     _processIncomingAudio(waCallId, samples, sampleRate, agent, callLog) {
@@ -639,8 +648,10 @@ class WebRTCManager extends EventEmitter {
         outputQueues.set(waCallId, outputQueue);
         this.connections.set(waCallId, { pc, audioSource, ssrc: 0, _lastSdpAnswer: '', humanMode: true });
 
-        // Playback interval: drain audio queued from the browser back to Meta
-        const playbackInterval = setInterval(() => this.playAudioFrame(waCallId), 10);
+        // Playback interval: drain audio queued from the browser back to Meta.
+        // Use 8 ms (slightly faster than 10 ms frame duration) so the interval
+        // stays ahead of real time; the 200 ms queue cap prevents latency buildup.
+        const playbackInterval = setInterval(() => this.playAudioFrame(waCallId), 8);
         playbackIntervals.set(waCallId, playbackInterval);
 
         pc.ontrack = (event) => {
@@ -654,7 +665,9 @@ class WebRTCManager extends EventEmitter {
                 const connection = this.connections.get(waCallId);
                 const userId = connection?.relayUserId;
                 if (!userId) return; // hold audio until agent accepts
-                const buf = Buffer.from(data.samples.buffer);
+                // Use byteOffset + byteLength so we only copy this view's bytes,
+                // not the entire backing ArrayBuffer (which wrtc may reuse)
+                const buf = Buffer.from(data.samples.buffer, data.samples.byteOffset, data.samples.byteLength);
                 _humanBridgeIO.to(`user:${userId}`).emit('call:audio:from_contact', {
                     waCallId,
                     pcm: buf.toString('base64'),
@@ -700,20 +713,29 @@ class WebRTCManager extends EventEmitter {
 
     /**
      * Push PCM audio received from the browser into the outgoing queue for Meta.
-     * Browser sends 48 kHz mono Int16 PCM; WebRTC stack expects 8 kHz frames of 80 samples (10 ms).
+     * Browser sends 48 kHz mono Int16 PCM. We send 48 kHz frames of 480 samples (10 ms)
+     * directly to RTCAudioSource — no resampling needed, preserving full voice quality.
      * Called from the socket handler when the browser sends 'call:audio:to_contact'.
      */
     queueHumanAudioFrame(waCallId, pcmBase64) {
         const queue = outputQueues.get(waCallId);
         if (!queue) return;
+
         const buf = Buffer.from(pcmBase64, 'base64');
-        const samples48k = new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2);
-        // Resample from 48 kHz (browser) → 8 kHz (WebRTC) then push as 80-sample frames
-        const samples8k = this._resampleInt16(samples48k, 48000, 8000);
-        const FRAME_SIZE = 80;
-        for (let i = 0; i < samples8k.length; i += FRAME_SIZE) {
+        const samples = new Int16Array(buf.buffer, buf.byteOffset, buf.byteLength / 2);
+
+        // Cap queue depth at ~200 ms to avoid latency accumulation under jitter.
+        // At 480 samples/frame @ 48 kHz, 200 ms = ~10 frames.
+        if (queue.length > 10) {
+            const excess = queue.length - 10;
+            queue.splice(0, excess);
+        }
+
+        // Split into 480-sample (10 ms @ 48 kHz) frames
+        const FRAME_SIZE = 480;
+        for (let i = 0; i < samples.length; i += FRAME_SIZE) {
             const frame = new Int16Array(FRAME_SIZE);
-            frame.set(samples8k.subarray(i, Math.min(i + FRAME_SIZE, samples8k.length)));
+            frame.set(samples.subarray(i, Math.min(i + FRAME_SIZE, samples.length)));
             queue.push(frame);
         }
     }

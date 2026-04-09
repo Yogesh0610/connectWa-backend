@@ -52,20 +52,18 @@ export async function routeToHuman({ waCallId, phoneNumberId, sdpOffer, agent, c
     }
 
     // ── WebRTC fallback ────────────────────────────────────────────────────────
-    // Pre-answer Meta's WebRTC offer IMMEDIATELY so ICE candidates don't expire
-    // while waiting for the agent to click Accept. Audio relay is held until agent accepts.
+    // Set up the WebRTC peer connection locally so ICE candidates are gathered
+    // NOW (before agent accepts). We store the SDP answer and only send
+    // PRE_ACCEPT + ACCEPT to Meta when the agent actually clicks "Accept".
+    // This prevents the contact's call timer from starting prematurely.
     const humanAgentStub = { ...agent.toObject?.() || agent, agent_type: 'human' };
 
     let sdpAnswer;
     try {
         sdpAnswer = await webrtcService.answerCallForHuman(waCallId, phoneNumberId, sdpOffer, humanAgentStub, callLog);
-        await whatsappCallingService.sendCallEvent(phoneNumberId, waCallId, 'PRE_ACCEPT', {
-            sdp_type: 'answer',
-            sdp: sdpAnswer,
-        });
-        console.log(`[HumanBridge] Pre-answered Meta WebRTC for call ${waCallId}`);
+        console.log(`[HumanBridge] WebRTC ready for call ${waCallId} — PRE_ACCEPT held until agent accepts`);
     } catch (err) {
-        console.error(`[HumanBridge] Failed to pre-answer WebRTC for ${waCallId}:`, err.message);
+        console.error(`[HumanBridge] Failed to set up WebRTC for ${waCallId}:`, err.message);
     }
 
     callLog.routing_type      = 'human_pending';
@@ -94,12 +92,14 @@ export async function routeToHuman({ waCallId, phoneNumberId, sdpOffer, agent, c
     // Ring timeout
     const timeoutMs = (agent.ring_timeout_seconds || 30) * 1000;
     const timer = setTimeout(() => handleRingTimeout(waCallId, callLog._id, agent.assigned_user_id), timeoutMs);
-    pendingCalls.set(waCallId, { timer, phoneNumberId, agent });
+    // Store sdpAnswer so humanAnswerCall can send PRE_ACCEPT + ACCEPT at the right moment
+    pendingCalls.set(waCallId, { timer, phoneNumberId, agent, sdpAnswer });
 }
 
 /**
  * Human agent accepted the call from their browser.
- * Answer Meta's WebRTC offer and return the SDP answer to send back.
+ * NOW send PRE_ACCEPT + ACCEPT to Meta (starting the contact's call timer),
+ * then enable the audio relay between Meta and the agent's browser.
  */
 export async function humanAnswerCall({ waCallId, callLogId }) {
     const callLog = await WhatsappCallLog.findById(callLogId);
@@ -112,9 +112,31 @@ export async function humanAnswerCall({ waCallId, callLogId }) {
     }
 
     const userId = callLog.notified_user_id?.toString();
+    const { phoneNumberId, sdpAnswer } = pending || {};
 
-    // WebRTC was already negotiated with Meta on call arrival.
-    // Now enable audio relay: Meta audio → browser, browser audio → Meta.
+    // Send PRE_ACCEPT + ACCEPT to Meta now — this is the moment the contact's
+    // call timer starts. Previously this happened on call arrival, which is wrong.
+    if (phoneNumberId && sdpAnswer) {
+        try {
+            await whatsappCallingService.sendCallEvent(phoneNumberId, waCallId, 'PRE_ACCEPT', {
+                sdp_type: 'answer',
+                sdp: sdpAnswer,
+            });
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await whatsappCallingService.sendCallEvent(phoneNumberId, waCallId, 'ACCEPT', {
+                sdp_type: 'answer',
+                sdp: sdpAnswer,
+            });
+            console.log(`[HumanBridge] Sent PRE_ACCEPT + ACCEPT to Meta for call ${waCallId}`);
+        } catch (err) {
+            console.error(`[HumanBridge] Failed to send ACCEPT to Meta for ${waCallId}:`, err.message);
+            // Don't throw — audio relay can still work even if Meta signalling partially fails
+        }
+    } else {
+        console.warn(`[HumanBridge] No pending SDP answer found for ${waCallId} — may have already sent`);
+    }
+
+    // Enable audio relay: Meta audio → browser, browser audio → Meta
     const relayStarted = webrtcService.startHumanAudioRelay(waCallId, userId);
     if (!relayStarted) {
         throw new Error(`WebRTC connection not found for call ${waCallId} — it may have already ended`);
@@ -122,32 +144,72 @@ export async function humanAnswerCall({ waCallId, callLogId }) {
 
     callLog.routing_type = 'human_webrtc';
     callLog.status       = 'answered';
+    callLog.start_time   = new Date();
     await callLog.save();
 
     console.log(`[HumanBridge] Call ${waCallId} answered by human via WebRTC`);
 }
 
 /**
- * Human agent rejected the call or hung up.
+ * Human agent rejected (declined) or hung up an active call.
+ * Always terminates the Meta call regardless of whether it was still ringing.
  */
 export async function humanRejectCall({ waCallId, callLogId }) {
     const pending = pendingCalls.get(waCallId);
+    let phoneNumberId = pending?.phoneNumberId;
+
     if (pending) {
         clearTimeout(pending.timer);
         pendingCalls.delete(waCallId);
-        await whatsappCallingService.terminateCall(pending.phoneNumberId, waCallId);
     }
 
-    const callLog = await WhatsappCallLog.findByIdAndUpdate(callLogId, {
-        status: 'missed',
+    // If the call was already accepted, phoneNumberId comes from the callLog
+    const callLog = await WhatsappCallLog.findById(callLogId);
+    if (!phoneNumberId && callLog?.phone_number_id) {
+        phoneNumberId = callLog.phone_number_id;
+    }
+
+    // Always tell Meta to terminate — this is the only way to end the call on the
+    // contact's side. Previously this was skipped after the agent accepted the call.
+    if (phoneNumberId) {
+        try {
+            await whatsappCallingService.terminateCall(phoneNumberId, waCallId);
+            console.log(`[HumanBridge] Sent TERMINATE to Meta for call ${waCallId}`);
+        } catch (err) {
+            console.warn(`[HumanBridge] Could not send TERMINATE for ${waCallId}:`, err.message);
+        }
+    }
+
+    // Clean up WebRTC resources
+    webrtcService.cleanup(waCallId);
+
+    // Emit call:ended to the agent's browser so the UI dismisses
+    if (_io && callLog?.notified_user_id) {
+        _io.to(`user:${callLog.notified_user_id}`).emit('call:ended', {
+            waCallId,
+            callLogId: callLogId.toString(),
+        });
+    }
+
+    const wasAnswered = callLog?.status === 'answered';
+    const endStatus   = wasAnswered ? 'completed' : 'missed';
+
+    // Compute duration if the call was answered
+    let duration = 0;
+    if (wasAnswered && callLog.start_time) {
+        duration = Math.round((Date.now() - new Date(callLog.start_time).getTime()) / 1000);
+    }
+
+    const updatedLog = await WhatsappCallLog.findByIdAndUpdate(callLogId, {
+        status:   endStatus,
         end_time: new Date(),
+        duration,
         routing_type: 'human_webrtc',
     }, { new: true });
 
-    // Create missed/rejected call message in chat history
-    if (callLog) await _createCallChatMessage(callLog, 'missed');
+    if (updatedLog) await _createCallChatMessage(updatedLog, wasAnswered ? 'answered' : 'missed');
 
-    console.log(`[HumanBridge] Call ${waCallId} rejected by human agent`);
+    console.log(`[HumanBridge] Call ${waCallId} ended by human agent (${endStatus}, ${duration}s)`);
 }
 
 /** Internal: called when ring timer expires */

@@ -5,7 +5,7 @@ import { AdAccount } from "../../../models/AdAccount.js";
 
 class MetaAdSetService {
   constructor() {
-    this.apiVersion = "v19.0";
+    this.apiVersion = "v21.0";
     this.baseUrl = `https://graph.facebook.com/${this.apiVersion}`;
   }
 
@@ -61,22 +61,30 @@ class MetaAdSetService {
     };
 
     // Call Meta API
+    const metaPayload = {
+      name,
+      campaign_id:       campaign.meta_campaign_id,
+      billing_event,
+      optimization_goal,
+      status,
+      targeting:         targeting_spec,
+      ...(daily_budget    && { daily_budget:    Math.round(daily_budget    * 100) }),
+      ...(lifetime_budget && { lifetime_budget: Math.round(lifetime_budget * 100) }),
+      ...(bid_amount      && { bid_amount:      Math.round(bid_amount      * 100) }),
+      ...(start_time && { start_time: new Date(start_time).toISOString() }),
+      ...(end_time   && { end_time:   new Date(end_time).toISOString()   }),
+      ...(promoted_object && { promoted_object }),
+    };
+    console.log(`[MetaAdSet] Creating ad set → POST act_${accountId}/adsets`, JSON.stringify({
+      optimization_goal: metaPayload.optimization_goal,
+      billing_event:     metaPayload.billing_event,
+      campaign_id:       metaPayload.campaign_id,
+      promoted_object:   metaPayload.promoted_object,
+      daily_budget:      metaPayload.daily_budget,
+    }));
     const res = await axios.post(
       `${this.baseUrl}/${accountId}/adsets`,
-      {
-        name,
-        campaign_id: campaign.meta_campaign_id,
-        billing_event,
-        optimization_goal,
-        status,
-        targeting: targeting_spec,
-        ...(daily_budget && { daily_budget: Math.round(daily_budget * 100) }),
-        ...(lifetime_budget && { lifetime_budget: Math.round(lifetime_budget * 100) }),
-        ...(bid_amount && { bid_amount: Math.round(bid_amount * 100) }),
-        ...(start_time && { start_time: new Date(start_time).toISOString() }),
-        ...(end_time && { end_time: new Date(end_time).toISOString() }),
-        ...(promoted_object && { promoted_object }),
-      },
+      metaPayload,
       { params: { access_token: token } }
     );
 

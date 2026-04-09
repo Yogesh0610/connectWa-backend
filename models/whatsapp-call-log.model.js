@@ -89,6 +89,23 @@ const whatsappCallLogSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.Mixed,
         default: null
     },
+    // 'ai' = answered by AI | 'human_sip' = routed to SIP | 'human_webrtc' = browser WebRTC | 'human_pending' = waiting for human to accept
+    routing_type: {
+        type: String,
+        enum: ['ai', 'human_sip', 'human_webrtc', 'human_pending'],
+        default: 'ai'
+    },
+    // For human calls: pending SDP offer from Meta (stored until agent accepts)
+    pending_sdp_offer: {
+        type: String,
+        default: null
+    },
+    // For human calls: which user was notified
+    notified_user_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
     call_type: {
         type: String,
         enum: ['inbound', 'outbound'],

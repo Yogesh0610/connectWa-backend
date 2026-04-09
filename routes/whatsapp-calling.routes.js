@@ -19,6 +19,9 @@ router.post('/assign-agent-bulk', authenticate, checkPermission('create.whatsapp
 router.delete('/remove-agent/:contact_id', authenticate, checkPermission('delete.whatsapp_calling'), whatsappCallingController.removeAgentFromContact);
 router.post('/remove-agent-bulk', authenticate, checkPermission('delete.whatsapp_calling'), whatsappCallingController.removeAgentBulk);
 
+router.post('/human/answer', authenticate, whatsappCallingController.humanAnswerCall);
+router.post('/human/reject', authenticate, whatsappCallingController.humanRejectCall);
+
 router.get('/logs', authenticate, checkPermission('view.whatsapp_calling'), whatsappCallingController.getCallLogs);
 router.get('/logs/:id', authenticate, checkPermission('view.whatsapp_calling'), whatsappCallingController.getCallLogById);
 router.get('/logs/:id/transcription', authenticate, checkPermission('view.whatsapp_calling'), whatsappCallingController.getCallTranscription);

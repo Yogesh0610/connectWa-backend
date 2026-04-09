@@ -6,6 +6,28 @@ const whatsappCallAgentSchema = new mongoose.Schema({
         required: true,
         trim: true
     },
+    // 'ai' = automated AI agent | 'human' = real human operator
+    agent_type: {
+        type: String,
+        enum: ['ai', 'human'],
+        default: 'ai'
+    },
+    // For human agents: which User receives the call notification
+    assigned_user_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    // For human agents: SIP extension (e.g. "101") used when SIP is configured
+    sip_extension: {
+        type: String,
+        default: null
+    },
+    // Seconds to wait for human to answer before declaring missed
+    ring_timeout_seconds: {
+        type: Number,
+        default: 30
+    },
     user_id: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
@@ -16,8 +38,8 @@ const whatsappCallAgentSchema = new mongoose.Schema({
         default: 'Hello, how can I help you today?'
     },
     ai_config: {
-        model_id: { type: String, required: true },
-        api_key: { type: String, required: true },
+        model_id: { type: String, default: '' },
+        api_key: { type: String, default: '' },
         prompt: { type: String, default: '' },
         training_url: { type: String, default: '' },
         include_concise_instruction: { type: Boolean, default: true }

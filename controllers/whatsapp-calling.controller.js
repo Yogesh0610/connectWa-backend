@@ -1,6 +1,7 @@
 import { WhatsappCallSetting, WhatsappCallAgent, WhatsappCallLog, Contact, WhatsappPhoneNumber } from '../models/index.js';
 import axios from 'axios';
 import whatsappCallingService from '../services/whatsapp/whatsapp-calling.service.js';
+import { humanAnswerCall, humanRejectCall } from '../services/whatsapp/human-call-bridge.service.js';
 
 class WhatsappCallingController {
     async getCallSettings(req, res) {
@@ -440,6 +441,34 @@ class WhatsappCallingController {
 
             res.status(200).json(callLog);
         } catch (error) {
+            res.status(500).json({ message: error.message });
+        }
+    }
+
+    async humanAnswerCall(req, res) {
+        try {
+            const { waCallId, callLogId } = req.body;
+            if (!waCallId || !callLogId) {
+                return res.status(400).json({ message: 'waCallId and callLogId are required' });
+            }
+            const sdpAnswer = await humanAnswerCall({ waCallId, callLogId });
+            res.status(200).json({ success: true, sdpAnswer });
+        } catch (error) {
+            console.error('[humanAnswerCall]', error);
+            res.status(500).json({ message: error.message });
+        }
+    }
+
+    async humanRejectCall(req, res) {
+        try {
+            const { waCallId, callLogId } = req.body;
+            if (!waCallId || !callLogId) {
+                return res.status(400).json({ message: 'waCallId and callLogId are required' });
+            }
+            await humanRejectCall({ waCallId, callLogId });
+            res.status(200).json({ success: true });
+        } catch (error) {
+            console.error('[humanRejectCall]', error);
             res.status(500).json({ message: error.message });
         }
     }
