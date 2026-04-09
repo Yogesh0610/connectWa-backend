@@ -701,12 +701,11 @@ export const assignChatToAgent = async (req, res) => {
         { sender_number: businessPhoneNumber, receiver_number: contactPhoneNumber }
       ]
     };
-    const statusMatch = { $or: [{ status: 'assigned' }, { status: { $exists: false } }] };
 
+    // Search without status filter — any existing record for this chat pair should be updated
     const existingAssignment = await ChatAssignment.findOne({
       whatsapp_phone_number_id,
       ...chatMatch,
-      ...statusMatch
     });
 
     let assignment;

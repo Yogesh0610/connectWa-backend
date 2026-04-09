@@ -8,6 +8,10 @@ import campaignScheduler from './utils/campaign-scheduler.js';
 import automatedResponseWorker from './utils/automated-response-worker.js';
 import { fixSettingsData } from './utils/fix-settings-data.js';
 import { setContactImportSocketIo } from './queues/contact-import-queue.js';
+import { setHumanBridgeIO } from './services/whatsapp/human-call-bridge.service.js';
+import { setWebRTCSocketIO } from './services/whatsapp/webrtc.service.js';
+import webrtcService from './services/whatsapp/webrtc.service.js';
+import jwt from 'jsonwebtoken';
 // import './utils/system-settings.js';
 import { getSequenceQueue } from './queues/sequence-queue.js';
 import statusCronService from './cronjob/status.cronService.js';
@@ -73,6 +77,8 @@ const io = new Server(httpServer, {
 
 app.set('io', io);
 setContactImportSocketIo(io);
+setHumanBridgeIO(io);
+setWebRTCSocketIO(io);
 
 import('./services/whatsapp/unified-whatsapp.service.js').then(module => {
   module.default.setIO(io);
@@ -83,10 +89,33 @@ io.use((socket, next) => {
   if (!token) {
     return next(new Error('Authentication required'));
   }
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.userId = decoded._id || decoded.id || decoded.userId;
+  } catch {
+    // token invalid — still allow connection, room join handled per-event
+  }
   next();
 });
 
 io.on('connection', (socket) => {
+  // Join personal room so targeted events (call:incoming, call:missed) work
+  if (socket.userId) {
+    socket.join(`user:${socket.userId}`);
+  }
+
+  // Client can also join explicitly (e.g. after auth resolves)
+  socket.on('join:user', (userId) => {
+    if (userId) socket.join(`user:${userId}`);
+  });
+
+  // Browser agent sends PCM audio frames to relay to Meta
+  socket.on('call:audio:to_contact', ({ waCallId, pcmBase64 }) => {
+    if (waCallId && pcmBase64) {
+      webrtcService.queueHumanAudioFrame(waCallId, pcmBase64);
+    }
+  });
+
   socket.on('disconnect', () => {});
 });
 

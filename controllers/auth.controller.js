@@ -512,16 +512,13 @@ export const resendOTP = async (req, res) => {
 };
 
 export const resetPassword = async (req, res) => {
-  const { email, otp, new_password } = req.body;
-  const ip = req.ip;
-
   try {
     const { email, otp, new_password: newPassword } = req.body;
 
-    if (!email || !otp || !newPassword) {
+    if (!email || !newPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Email, OTP, and new password are required'
+        message: 'Email and new password are required'
       });
     }
 
@@ -534,12 +531,15 @@ export const resetPassword = async (req, res) => {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    const otpRecord = await OTPLog.findOne({
-      email: email.toLowerCase().trim(),
-      otp,
+    // Find a verified OTP — either passed in body or look up the most recent one
+    const otpQuery = {
+      email: normalizedEmail,
       verified: true,
       expires_at: { $gt: new Date() }
-    }).sort({ created_at: -1 });
+    };
+    if (otp) otpQuery.otp = otp;
+
+    const otpRecord = await OTPLog.findOne(otpQuery).sort({ created_at: -1 });
 
     if (!otpRecord) {
       return res.status(400).json({ message: 'Invalid or session expired.' });

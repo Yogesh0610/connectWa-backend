@@ -9,7 +9,7 @@ router.use(authenticate);
 
 router.get('/connected', checkPermission('view.workspace'), workspaceController.getConnectedWorkspaces);
 router.post('/', checkPermission('create.workspace'), workspaceController.createWorkspace);
-router.get('/', checkPermission('view.workspace'), workspaceController.getWorkspaces);
+router.get('/', workspaceController.getWorkspaces); // auth-only: controller filters by owner_id
 router.get('/:id', checkPermission('view.workspace'), workspaceController.getWorkspaceById);
 router.patch('/:id', checkPermission('update.workspace'), workspaceController.updateWorkspace);
 router.delete('/:id', checkPermission('delete.workspace'), workspaceController.deleteWorkspace);
