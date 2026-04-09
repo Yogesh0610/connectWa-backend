@@ -60,6 +60,9 @@ class MetaAdSetService {
       ...(targeting.languages?.length && { locales: targeting.languages }),
     };
 
+    // If the campaign already has a budget (CBO), ad sets must NOT set their own budget
+    const campaignHasBudget = !!(campaign.daily_budget || campaign.lifetime_budget);
+
     // Call Meta API
     const metaPayload = {
       name,
@@ -68,13 +71,17 @@ class MetaAdSetService {
       optimization_goal,
       status,
       targeting:         targeting_spec,
-      ...(daily_budget    && { daily_budget:    Math.round(daily_budget    * 100) }),
-      ...(lifetime_budget && { lifetime_budget: Math.round(lifetime_budget * 100) }),
+      // Only include budget at adset level if campaign does NOT use CBO
+      ...(!campaignHasBudget && daily_budget    && { daily_budget:    Math.round(daily_budget    * 100) }),
+      ...(!campaignHasBudget && lifetime_budget && { lifetime_budget: Math.round(lifetime_budget * 100) }),
       ...(bid_amount      && { bid_amount:      Math.round(bid_amount      * 100) }),
       ...(start_time && { start_time: new Date(start_time).toISOString() }),
       ...(end_time   && { end_time:   new Date(end_time).toISOString()   }),
       ...(promoted_object && { promoted_object }),
     };
+    if (campaignHasBudget) {
+      console.log(`[MetaAdSet] Campaign uses CBO — skipping adset-level budget`);
+    }
     console.log(`[MetaAdSet] Creating ad set → POST act_${accountId}/adsets`, JSON.stringify({
       optimization_goal: metaPayload.optimization_goal,
       billing_event:     metaPayload.billing_event,
